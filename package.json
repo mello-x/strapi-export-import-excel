@@ -1,0 +1,89 @@
+{
+  "name": "strapi-export-import-excel",
+  "version": "1.0.0",
+  "description": "A Strapi v5 plugin for exporting and importing collection data as Excel or JSON, with live preview and per-collection field configuration.",
+  "license": "MIT",
+  "author": "Assawin Chittanandha <chittanandhaassawin@gmail.com>",
+  "homepage": "https://github.com/mello-x/strapi-export-import-excel#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mello-x/strapi-export-import-excel.git"
+  },
+  "keywords": [
+    "strapi",
+    "strapi-plugin",
+    "excel",
+    "export",
+    "import",
+    "xlsx",
+    "strapi-v5"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "type": "commonjs",
+  "exports": {
+    "./package.json": "./package.json",
+    "./strapi-admin": {
+      "types": "./dist/admin/src/index.d.ts",
+      "source": "./admin/src/index.ts",
+      "import": "./dist/admin/index.mjs",
+      "require": "./dist/admin/index.js",
+      "default": "./dist/admin/index.js"
+    },
+    "./strapi-server": {
+      "types": "./dist/server/src/index.d.ts",
+      "source": "./server/src/index.ts",
+      "import": "./dist/server/index.mjs",
+      "require": "./dist/server/index.js",
+      "default": "./dist/server/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "strapi-plugin build",
+    "watch": "strapi-plugin watch",
+    "watch:link": "strapi-plugin watch:link",
+    "verify": "strapi-plugin verify",
+    "test:ts:front": "run -T tsc -p admin/tsconfig.json",
+    "test:ts:back": "run -T tsc -p server/tsconfig.json"
+  },
+  "dependencies": {
+    "xlsx": "0.18.5"
+  },
+  "devDependencies": {
+    "@strapi/design-system": "2.0.0-rc.30",
+    "@strapi/icons": "2.0.0-rc.30",
+    "@strapi/sdk-plugin": "6.0.1",
+    "@strapi/strapi": "5.37.1",
+    "@strapi/typescript-utils": "5.37.1",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "prettier": "3.8.1",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "react-intl": "6.8.9",
+    "react-router-dom": "6.30.3",
+    "styled-components": "6.3.11",
+    "typescript": "5.9.3"
+  },
+  "peerDependencies": {
+    "@strapi/design-system": "2.0.0-rc.30",
+    "@strapi/icons": "2.0.0-rc.30",
+    "@strapi/sdk-plugin": "6.0.1",
+    "@strapi/strapi": "5.37.1",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "react-intl": "6.8.9",
+    "react-router-dom": "6.30.3",
+    "styled-components": "6.3.11"
+  },
+  "strapi": {
+    "kind": "plugin",
+    "name": "strapi-export-import-excel",
+    "displayName": "Export / Import Excel",
+    "description": "A Strapi v5 plugin for exporting and importing collection data as Excel or JSON, with live preview and per-collection field configuration."
+  }
+}
