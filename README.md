@@ -4,6 +4,8 @@ A Strapi v5 plugin for exporting and importing collection data as Excel (`.xlsx`
 
 **Requires:** Strapi v5 · Node.js ≥ 18
 
+Plugin preview
+<img width="1920" height="929" alt="homepage-export-import" src="https://github.com/user-attachments/assets/4f020e3f-ae9d-4ac0-aa47-42c40f0dbd88" />
 ---
 
 ## Features
