@@ -50,13 +50,14 @@
     "test:ts:front": "run -T tsc -p admin/tsconfig.json",
     "test:ts:back": "run -T tsc -p server/tsconfig.json",
     "lint": "biome check .",
-    "lint:fix": "biome check --write ."
+    "lint:fix": "biome check --write .",
+    "prepare": "husky"
   },
   "dependencies": {
     "xlsx": "0.18.5"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.4.5",
+    "@biomejs/biome": "2.4.5",
     "@strapi/design-system": "2.0.0-rc.30",
     "@strapi/icons": "2.0.0-rc.30",
     "@strapi/sdk-plugin": "6.0.1",
@@ -64,6 +65,7 @@
     "@strapi/typescript-utils": "5.37.1",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
+    "husky": "9.1.7",
     "prettier": "3.8.1",
     "react": "18.3.1",
     "react-dom": "18.3.1",
