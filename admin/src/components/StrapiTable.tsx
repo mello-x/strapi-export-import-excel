@@ -2,6 +2,8 @@ import {
   Box,
   Button,
   Flex,
+  SingleSelect,
+  SingleSelectOption,
   Table,
   Tbody,
   Td,
@@ -9,8 +11,6 @@ import {
   Thead,
   Tr,
   Typography,
-  SingleSelect,
-  SingleSelectOption,
 } from "@strapi/design-system";
 
 interface StrapiTableProps {
@@ -36,7 +36,7 @@ const StrapiTable = ({
 }: StrapiTableProps) => {
   const totalPages = Math.max(1, Math.ceil(totalRows / perPage));
 
-  const renderCellValue = (value: any): string => value == null ? "" : String(value);
+  const renderCellValue = (value: any): string => (value == null ? "" : String(value));
 
   return (
     <Box>
@@ -78,7 +78,7 @@ const StrapiTable = ({
               </Tr>
             ) : (
               data.map((row, rowIdx) => (
-                <Tr key={rowIdx}>
+                <Tr key={row.documentId ?? row.id ?? rowIdx}>
                   {columns.map((col) => (
                     <Td key={col}>
                       <Typography

@@ -1,18 +1,10 @@
-import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import {
-  Box,
-  Button,
-  Flex,
-  Main,
-  SingleSelect,
-  SingleSelectOption,
-  Typography,
-} from "@strapi/design-system";
+import { Box, Button, Flex, Main, SingleSelect, SingleSelectOption, Typography } from "@strapi/design-system";
 import { Download, Upload } from "@strapi/icons";
 import { useNotification } from "@strapi/strapi/admin";
-import { LocaleSelect } from "../components/LocaleSelect";
+import { useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import type { Locale } from "../components/LocaleSelect";
+import { LocaleSelect } from "../components/LocaleSelect";
 
 interface Collection {
   uid: string;
@@ -54,12 +46,10 @@ const HomePage = () => {
         setExportLocale(defaultCode);
         setImportLocale(defaultCode);
       })
-      .catch(() =>
-        toggleNotification({ type: "danger", message: "Failed to load collections or locales" })
-      )
+      .catch(() => toggleNotification({ type: "danger", message: "Failed to load collections or locales" }))
       .finally(() => setIsLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [toggleNotification]);
 
   const exportIsLocalized = collections.find((c) => c.uid === exportCollection)?.isLocalized ?? false;
   const importIsLocalized = collections.find((c) => c.uid === importCollection)?.isLocalized ?? false;
@@ -188,29 +178,21 @@ const HomePage = () => {
                 }}
                 placeholder="Select collection..."
               >
-                {collections.filter((c) => c.exportEnabled !== false).map((col) => (
-                  <SingleSelectOption key={col.uid} value={col.uid}>
-                    {col.displayName}
-                  </SingleSelectOption>
-                ))}
+                {collections
+                  .filter((c) => c.exportEnabled !== false)
+                  .map((col) => (
+                    <SingleSelectOption key={col.uid} value={col.uid}>
+                      {col.displayName}
+                    </SingleSelectOption>
+                  ))}
               </SingleSelect>
 
               {exportIsLocalized && locales.length > 0 && (
-                <LocaleSelect
-                  locales={locales}
-                  value={exportLocale}
-                  onChange={setExportLocale}
-                />
+                <LocaleSelect locales={locales} value={exportLocale} onChange={setExportLocale} />
               )}
 
               <Box style={{ marginTop: "20px" }}>
-                <Button
-                  onClick={handleExport}
-                  disabled={!exportCollection}
-                  startIcon={<Download />}
-                  size="L"
-                  fullWidth
-                >
+                <Button onClick={handleExport} disabled={!exportCollection} startIcon={<Download />} size="L" fullWidth>
                   Preview &amp; Export
                 </Button>
               </Box>
@@ -237,19 +219,17 @@ const HomePage = () => {
                 }}
                 placeholder="Select collection..."
               >
-                {collections.filter((c) => c.importEnabled !== false).map((col) => (
-                  <SingleSelectOption key={col.uid} value={col.uid}>
-                    {col.displayName}
-                  </SingleSelectOption>
-                ))}
+                {collections
+                  .filter((c) => c.importEnabled !== false)
+                  .map((col) => (
+                    <SingleSelectOption key={col.uid} value={col.uid}>
+                      {col.displayName}
+                    </SingleSelectOption>
+                  ))}
               </SingleSelect>
 
               {importIsLocalized && locales.length > 0 && (
-                <LocaleSelect
-                  locales={locales}
-                  value={importLocale}
-                  onChange={setImportLocale}
-                />
+                <LocaleSelect locales={locales} value={importLocale} onChange={setImportLocale} />
               )}
 
               <input
@@ -268,12 +248,7 @@ const HomePage = () => {
                       <Typography variant="omega" textColor="neutral600">
                         {pendingFile?.name}
                       </Typography>
-                      <Button
-                        variant="ghost"
-                        size="S"
-                        onClick={resetImportState}
-                        disabled={isImporting}
-                      >
+                      <Button variant="ghost" size="S" onClick={resetImportState} disabled={isImporting}>
                         ✕ Cancel
                       </Button>
                     </Flex>

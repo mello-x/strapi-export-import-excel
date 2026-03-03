@@ -11,9 +11,7 @@ const importController = ({ strapi }: { strapi: Core.Strapi }) => ({
 
       const file = Array.isArray(files.file) ? files.file[0] : files.file;
 
-      const importService = strapi
-        .plugin("strapi-export-import-excel")
-        .service("import-service");
+      const importService = strapi.plugin("strapi-export-import-excel").service("import-service");
 
       const headers = await importService.getFileHeaders(file);
       ctx.body = { headers };
@@ -37,9 +35,7 @@ const importController = ({ strapi }: { strapi: Core.Strapi }) => ({
       const locale = body.locale || null;
       const identifierField = body.identifierField || null;
 
-      const importService = strapi
-        .plugin("strapi-export-import-excel")
-        .service("import-service");
+      const importService = strapi.plugin("strapi-export-import-excel").service("import-service");
 
       const result = await importService.importData(file, targetContentType, locale, identifierField);
 

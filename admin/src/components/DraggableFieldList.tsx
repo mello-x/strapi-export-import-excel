@@ -1,22 +1,22 @@
-import { Box, Flex, Toggle, Typography } from "@strapi/design-system";
-import { Drag } from "@strapi/icons";
 import {
-  DndContext,
   closestCenter,
+  DndContext,
+  type DragEndEvent,
   KeyboardSensor,
   PointerSensor,
   useSensor,
   useSensors,
-  type DragEndEvent,
 } from "@dnd-kit/core";
 import {
+  arrayMove,
   SortableContext,
   sortableKeyboardCoordinates,
   useSortable,
   verticalListSortingStrategy,
-  arrayMove,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { Box, Flex, Toggle, Typography } from "@strapi/design-system";
+import { Drag } from "@strapi/icons";
 
 export interface FieldConfig {
   key: string;
@@ -51,15 +51,8 @@ const SortableFieldItem = ({ field, onToggle }: SortableFieldItemProps) => {
         >
           <Drag />
         </span>
-        <Toggle
-          checked={field.enabled}
-          onChange={() => onToggle(field.key)}
-          onLabel="Include"
-          offLabel="Exclude"
-        />
-        <Typography style={{ color: field.enabled ? "inherit" : "#8E8EA9" }}>
-          {field.label}
-        </Typography>
+        <Toggle checked={field.enabled} onChange={() => onToggle(field.key)} onLabel="Include" offLabel="Exclude" />
+        <Typography style={{ color: field.enabled ? "inherit" : "#8E8EA9" }}>{field.label}</Typography>
       </Flex>
     </div>
   );
@@ -102,9 +95,7 @@ const DraggableFieldList = ({ title, fields, onChange }: DraggableFieldListProps
             ))}
           </SortableContext>
         </DndContext>
-        {fields.length === 0 && (
-          <Typography style={{ color: "#8E8EA9" }}>No fields available</Typography>
-        )}
+        {fields.length === 0 && <Typography style={{ color: "#8E8EA9" }}>No fields available</Typography>}
       </Box>
     </Box>
   );

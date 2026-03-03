@@ -1,6 +1,6 @@
-import { PLUGIN_ID } from "./pluginId";
 import { Initializer } from "./components/Initializer";
 import { PluginIcon } from "./components/PluginIcon";
+import { PLUGIN_ID } from "./pluginId";
 
 export default {
   register(app: any) {
@@ -9,7 +9,7 @@ export default {
       icon: PluginIcon,
       intlLabel: {
         id: `${PLUGIN_ID}.plugin.name`,
-        defaultMessage: 'Export / Import',
+        defaultMessage: "Export / Import",
       },
       Component: async () => {
         const { App } = await import("./pages/App");
@@ -21,15 +21,15 @@ export default {
     app.createSettingSection(
       {
         id: PLUGIN_ID,
-        intlLabel: { id: `${PLUGIN_ID}.settings.section`, defaultMessage: 'Export / Import Excel' },
+        intlLabel: { id: `${PLUGIN_ID}.settings.section`, defaultMessage: "Export / Import Excel" },
       },
       [
         {
-          intlLabel: { id: `${PLUGIN_ID}.settings.collections`, defaultMessage: 'Collections' },
+          intlLabel: { id: `${PLUGIN_ID}.settings.collections`, defaultMessage: "Collections" },
           id: `${PLUGIN_ID}.collections`,
           to: `/settings/${PLUGIN_ID}`,
           Component: async () => {
-            const { SettingsPage } = await import('./pages/SettingsPage');
+            const { SettingsPage } = await import("./pages/SettingsPage");
             return SettingsPage;
           },
           permissions: [{ action: `plugin::${PLUGIN_ID}.settings.read`, subject: null }],

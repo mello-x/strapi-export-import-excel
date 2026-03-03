@@ -1,19 +1,6 @@
-import { useEffect, useState } from "react";
-import {
-  Box,
-  Button,
-  Flex,
-  Main,
-  Table,
-  Thead,
-  Tbody,
-  Tr,
-  Th,
-  Td,
-  Toggle,
-  Typography,
-} from "@strapi/design-system";
+import { Box, Button, Flex, Main, Table, Tbody, Td, Th, Thead, Toggle, Tr, Typography } from "@strapi/design-system";
 import { useNotification, useRBAC } from "@strapi/strapi/admin";
+import { useEffect, useState } from "react";
 import { PLUGIN_ID } from "../pluginId";
 
 interface Collection {
@@ -45,17 +32,13 @@ const SettingsPage = () => {
           }))
         );
       })
-      .catch(() =>
-        toggleNotification({ type: "danger", message: "Failed to load collections" })
-      )
+      .catch(() => toggleNotification({ type: "danger", message: "Failed to load collections" }))
       .finally(() => setIsLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [toggleNotification]);
 
   const toggle = (uid: string, field: "exportEnabled" | "importEnabled") => {
-    setCollections((prev) =>
-      prev.map((c) => (c.uid === uid ? { ...c, [field]: !c[field] } : c))
-    );
+    setCollections((prev) => prev.map((c) => (c.uid === uid ? { ...c, [field]: !c[field] } : c)));
   };
 
   const handleSave = async () => {
@@ -95,9 +78,7 @@ const SettingsPage = () => {
           <Typography variant="alpha" style={{ display: "block", marginBottom: "16px" }}>
             Collections Configuration
           </Typography>
-          <Typography textColor="neutral600">
-            You don&apos;t have access to this page.
-          </Typography>
+          <Typography textColor="neutral600">You don&apos;t have access to this page.</Typography>
         </Box>
       </Main>
     );

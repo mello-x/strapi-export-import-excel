@@ -1,25 +1,30 @@
-import type { Core } from '@strapi/strapi';
-import * as XLSX from 'xlsx';
+import type { Core } from "@strapi/strapi";
+import * as XLSX from "xlsx";
 
-const getPluginStore = (strapi: Core.Strapi) =>
-  strapi.store({ type: 'plugin', name: 'strapi-export-import-excel' });
+const getPluginStore = (strapi: Core.Strapi) => strapi.store({ type: "plugin", name: "strapi-export-import-excel" });
 
 const SYSTEM_KEYS = [
-  'documentId',
-  'locale',
-  'createdAt',
-  'updatedAt',
-  'publishedAt',
-  'createdBy',
-  'updatedBy',
-  'localizations',
-  'status',
+  "documentId",
+  "locale",
+  "createdAt",
+  "updatedAt",
+  "publishedAt",
+  "createdBy",
+  "updatedBy",
+  "localizations",
+  "status",
 ];
 
-const SHORTCUT_FIELDS = ['email', 'businessEmail', 'name', 'title', 'tickerCode'];
+const SHORTCUT_FIELDS = ["email", "businessEmail", "name", "title", "tickerCode"];
 
 const exportService = ({ strapi }: { strapi: Core.Strapi }) => ({
-  async exportData(format: string = 'json', contentType: string | null = null, rawFilters: Record<string, any> = {}, columnsOverride?: string, locale?: string) {
+  async exportData(
+    format: string = "json",
+    contentType: string | null = null,
+    rawFilters: Record<string, any> = {},
+    columnsOverride?: string,
+    locale?: string
+  ) {
     let contentTypes: string[];
     if (contentType) {
       if (!strapi.contentTypes[contentType]) {
@@ -27,11 +32,11 @@ const exportService = ({ strapi }: { strapi: Core.Strapi }) => ({
       }
       contentTypes = [contentType];
     } else {
-      contentTypes = Object.keys(strapi.contentTypes).filter((key) => key.startsWith('api::'));
+      contentTypes = Object.keys(strapi.contentTypes).filter((key) => key.startsWith("api::"));
     }
 
     const exportData: Record<string, any> = {
-      version: strapi.config.get('info.strapi'),
+      version: strapi.config.get("info.strapi"),
       timestamp: new Date().toISOString(),
       data: {},
     };
@@ -40,8 +45,8 @@ const exportService = ({ strapi }: { strapi: Core.Strapi }) => ({
       try {
         const parsedFilters = this.parseFilters(rawFilters);
 
-        if (rawFilters['_q']) {
-          parsedFilters._q = rawFilters['_q'];
+        if (rawFilters._q) {
+          parsedFilters._q = rawFilters._q;
         }
 
         let filters = parsedFilters.filters;
@@ -53,15 +58,11 @@ const exportService = ({ strapi }: { strapi: Core.Strapi }) => ({
           const orConditions: any[] = [];
 
           if (searchable.length > 0) {
-            orConditions.push(
-              ...searchable.map((field) => ({ [field]: { $containsi: parsedFilters._q } }))
-            );
+            orConditions.push(...searchable.map((field) => ({ [field]: { $containsi: parsedFilters._q } })));
           }
 
-          if (numberSearchable.length > 0 && !isNaN(parsedFilters._q)) {
-            orConditions.push(
-              ...numberSearchable.map((field) => ({ [field]: { $eq: Number(parsedFilters._q) } }))
-            );
+          if (numberSearchable.length > 0 && !Number.isNaN(parsedFilters._q)) {
+            orConditions.push(...numberSearchable.map((field) => ({ [field]: { $eq: Number(parsedFilters._q) } })));
           }
 
           if (orConditions.length > 0) {
@@ -77,7 +78,7 @@ const exportService = ({ strapi }: { strapi: Core.Strapi }) => ({
 
         const entries = await strapi.documents(ct as any).findMany({
           filters: { ...filters },
-          populate: '*',
+          populate: "*",
           ...localeParam,
         });
 
@@ -89,8 +90,8 @@ const exportService = ({ strapi }: { strapi: Core.Strapi }) => ({
       }
     }
 
-    if (format === 'excel') {
-      const stored = (await getPluginStore(strapi).get({ key: 'settings' })) as any;
+    if (format === "excel") {
+      const stored = (await getPluginStore(strapi).get({ key: "settings" })) as any;
       const fieldConfig: Record<string, { exportFields?: { key: string; enabled: boolean }[] }> =
         stored?.collections ?? {};
       return this.convertToExcel(exportData.data, fieldConfig, columnsOverride);
@@ -101,37 +102,38 @@ const exportService = ({ strapi }: { strapi: Core.Strapi }) => ({
 
   getSearchableFields(contentTypeSchema: any): string[] {
     return Object.entries<any>(contentTypeSchema.attributes)
-      .filter(([name, attr]) => ['string', 'text', 'richtext', 'email', 'uid', 'enumeration'].includes(attr.type) && name !== 'locale')
+      .filter(
+        ([name, attr]) =>
+          ["string", "text", "richtext", "email", "uid", "enumeration"].includes(attr.type) && name !== "locale"
+      )
       .map(([name]) => name);
   },
 
   getNumberFields(contentTypeSchema: any): string[] {
     return [
       ...Object.entries<any>(contentTypeSchema.attributes)
-        .filter(([, attr]) => ['number', 'integer', 'biginteger', 'float', 'decimal'].includes(attr.type))
+        .filter(([, attr]) => ["number", "integer", "biginteger", "float", "decimal"].includes(attr.type))
         .map(([name]) => name),
-      'id',
+      "id",
     ];
   },
 
   parseFilters(filters: Record<string, any>): Record<string, any> {
     const parsed: Record<string, any> = {};
     for (const [key, value] of Object.entries(filters)) {
-      if (['page', 'pageSize', 'sort', 'locale', 'format', 'contentType', '_q'].includes(key)) {
+      if (["page", "pageSize", "sort", "locale", "format", "contentType", "_q"].includes(key)) {
         continue;
       }
 
-      if (key.startsWith('filters[')) {
-        const match = key.match(
-          /filters\[([^\]]+)\](?:\[(\d+)\])?\[([^\]]+)\](?:\[([^\]]+)\])?/
-        );
+      if (key.startsWith("filters[")) {
+        const match = key.match(/filters\[([^\]]+)\](?:\[(\d+)\])?\[([^\]]+)\](?:\[([^\]]+)\])?/);
         if (match) {
           const [, operator, index, field, condition] = match;
           if (!parsed.filters) parsed.filters = {};
 
-          if (operator === '$and') {
+          if (operator === "$and") {
             if (!parsed.filters.$and) parsed.filters.$and = [];
-            const idx = parseInt(index) || 0;
+            const idx = parseInt(index, 10) || 0;
             if (!parsed.filters.$and[idx]) parsed.filters.$and[idx] = {};
 
             if (condition) {
@@ -159,9 +161,9 @@ const exportService = ({ strapi }: { strapi: Core.Strapi }) => ({
 
     for (const [contentType, entries] of Object.entries(data)) {
       const sheetName = contentType
-        .split('.')
-        .pop()!
-        .replace(/[^\w\s-]/gi, '_')
+        .split(".")
+        .pop()
+        ?.replace(/[^\w\s-]/gi, "_")
         .substring(0, 31);
 
       const attr = strapi.contentTypes[contentType]?.attributes || {};
@@ -169,13 +171,13 @@ const exportService = ({ strapi }: { strapi: Core.Strapi }) => ({
         .filter(([, def]) => def.customField)
         .map(([key]) => key);
       const relationFields = Object.entries<any>(attr)
-        .filter(([, def]) => def.type === 'relation')
+        .filter(([, def]) => def.type === "relation")
         .map(([key]) => key);
       const skipFields = Object.entries<any>(attr)
-        .filter(([, def]) => def.type === 'media')
+        .filter(([, def]) => def.type === "media")
         .map(([key]) => key);
       const componentFields = Object.entries<any>(attr)
-        .filter(([, def]) => def.type === 'component')
+        .filter(([, def]) => def.type === "component")
         .map(([key]) => key);
 
       function handleObject(key: string, value: any): any {
@@ -191,15 +193,15 @@ const exportService = ({ strapi }: { strapi: Core.Strapi }) => ({
       // Recursively flatten a component object into prefix_key columns
       function flattenComp(obj: any, prefix: string): Record<string, any> {
         const flat: Record<string, any> = {};
-        if (!obj || typeof obj !== 'object') return flat;
+        if (!obj || typeof obj !== "object") return flat;
         for (const [field, fieldValue] of Object.entries(obj)) {
-          if (field === 'id' || field === '__component') continue;
+          if (field === "id" || field === "__component") continue;
           const colKey = `${prefix}_${field}`;
           if (fieldValue === null || fieldValue === undefined) {
             flat[colKey] = null;
           } else if (Array.isArray(fieldValue)) {
             flat[colKey] = JSON.stringify(fieldValue);
-          } else if (typeof fieldValue === 'object') {
+          } else if (typeof fieldValue === "object") {
             Object.assign(flat, flattenComp(fieldValue, colKey));
           } else {
             flat[colKey] = fieldValue;
@@ -211,28 +213,26 @@ const exportService = ({ strapi }: { strapi: Core.Strapi }) => ({
       function cleanAndFlatten(obj: any): any {
         if (Array.isArray(obj)) {
           return obj.map(cleanAndFlatten);
-        } else if (obj !== null && typeof obj === 'object') {
+        } else if (obj !== null && typeof obj === "object") {
           const result: Record<string, any> = {};
           for (const key in obj) {
             const value = obj[key];
             if (SYSTEM_KEYS.includes(key)) continue;
             if (customFields.includes(key)) continue;
-            if ([...skipFields, 'wishlist', 'availableSlot'].includes(key)) continue;
+            if ([...skipFields, "wishlist", "availableSlot"].includes(key)) continue;
 
             if (componentFields.includes(key)) {
               if (Array.isArray(value)) {
                 // Repeatable component → JSON string (round-trippable on import)
-                result[key] = JSON.stringify(
-                  value.map(({ id, __component, ...rest }: any) => rest)
-                );
-              } else if (value && typeof value === 'object') {
+                result[key] = JSON.stringify(value.map(({ id, __component, ...rest }: any) => rest));
+              } else if (value && typeof value === "object") {
                 // Single component → recursive flatten into prefix_subField columns
                 Object.assign(result, flattenComp(value, key));
               }
               continue;
             }
 
-            if (value === null || typeof value !== 'object') {
+            if (value === null || typeof value !== "object") {
               result[key] = value;
               continue;
             }
@@ -244,7 +244,7 @@ const exportService = ({ strapi }: { strapi: Core.Strapi }) => ({
             }
 
             // value is an array
-            if (value.length > 0 && typeof value[0] === 'object') {
+            if (value.length > 0 && typeof value[0] === "object") {
               result[key] = value.map((item) => handleObject(key, item)).filter(Boolean);
             } else {
               result[key] = value;
@@ -257,7 +257,9 @@ const exportService = ({ strapi }: { strapi: Core.Strapi }) => ({
       }
 
       function flattenForXLSX(obj: Record<string, any>): Record<string, any> {
-        return Object.fromEntries(Object.entries(obj).map(([col, colValue]) => [col, Array.isArray(colValue) ? colValue.join('|') : colValue]));
+        return Object.fromEntries(
+          Object.entries(obj).map(([col, colValue]) => [col, Array.isArray(colValue) ? colValue.join("|") : colValue])
+        );
       }
 
       if (entries && entries.length > 0) {
@@ -266,7 +268,10 @@ const exportService = ({ strapi }: { strapi: Core.Strapi }) => ({
         // columnsOverride (from query param) takes priority over stored field config
         let enabledKeys: string[] | undefined;
         if (columnsOverride) {
-          enabledKeys = columnsOverride.split(',').map((c) => c.trim()).filter(Boolean);
+          enabledKeys = columnsOverride
+            .split(",")
+            .map((c) => c.trim())
+            .filter(Boolean);
         } else {
           const config = fieldConfig[contentType];
           enabledKeys = config?.exportFields
@@ -289,28 +294,28 @@ const exportService = ({ strapi }: { strapi: Core.Strapi }) => ({
           : XLSX.utils.json_to_sheet(cleaned);
         XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
       } else {
-        const worksheet = XLSX.utils.json_to_sheet([{ message: 'No data found' }]);
+        const worksheet = XLSX.utils.json_to_sheet([{ message: "No data found" }]);
         XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
         hasData = true;
       }
     }
 
     if (!hasData) {
-      const worksheet = XLSX.utils.json_to_sheet([{ message: 'No data to export' }]);
-      XLSX.utils.book_append_sheet(workbook, worksheet, 'NoData');
+      const worksheet = XLSX.utils.json_to_sheet([{ message: "No data to export" }]);
+      XLSX.utils.book_append_sheet(workbook, worksheet, "NoData");
     }
 
-    return XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+    return XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
   },
 
   async exportSingleEntry(contentType: string, entryId: string): Promise<Buffer> {
     const entry = await strapi.documents(contentType as any).findFirst({
       filters: { id: { $eq: entryId } } as any,
-      populate: '*',
+      populate: "*",
     });
 
     if (!entry) {
-      throw new Error('Entry not found');
+      throw new Error("Entry not found");
     }
 
     return this.convertToExcel({ [contentType]: [entry] });

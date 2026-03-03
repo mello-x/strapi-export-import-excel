@@ -16,21 +16,17 @@ const SYSTEM_KEYS = new Set([
 
 const SHORTCUT_FIELDS = ["name", "title", "email", "displayName", "businessEmail"];
 
-const getPluginStore = (strapi: Core.Strapi) =>
-  strapi.store({ type: "plugin", name: "strapi-export-import-excel" });
+const getPluginStore = (strapi: Core.Strapi) => strapi.store({ type: "plugin", name: "strapi-export-import-excel" });
 
 const controller = ({ strapi }: { strapi: Core.Strapi }) => ({
   index(ctx) {
-    ctx.body = strapi
-      .plugin("strapi-export-import-excel")
-      .service("service")
-      .getWelcomeMessage();
+    ctx.body = strapi.plugin("strapi-export-import-excel").service("service").getWelcomeMessage();
   },
 
   async getSettings(ctx) {
-    const stored = (await getPluginStore(strapi).get({ key: STORE_KEY })) as
-      | { collections: Record<string, { exportEnabled: boolean; importEnabled: boolean }> }
-      | null;
+    const stored = (await getPluginStore(strapi).get({ key: STORE_KEY })) as {
+      collections: Record<string, { exportEnabled: boolean; importEnabled: boolean }>;
+    } | null;
 
     ctx.body = { collections: stored?.collections ?? {} };
   },
@@ -79,11 +75,9 @@ const controller = ({ strapi }: { strapi: Core.Strapi }) => ({
 
   async getLocales(ctx) {
     try {
-      const dbFallback = () => strapi.db.query('plugin::i18n.locale' as any).findMany({});
-      const localesService = strapi.plugin('i18n')?.service('locales');
-      const locales: any[] = localesService
-        ? await localesService.find().catch(dbFallback)
-        : await dbFallback();
+      const dbFallback = () => strapi.db.query("plugin::i18n.locale" as any).findMany({});
+      const localesService = strapi.plugin("i18n")?.service("locales");
+      const locales: any[] = localesService ? await localesService.find().catch(dbFallback) : await dbFallback();
       ctx.body = {
         locales: locales.map((l: any) => ({ code: l.code, name: l.name, isDefault: l.isDefault ?? false })),
       };
@@ -95,19 +89,17 @@ const controller = ({ strapi }: { strapi: Core.Strapi }) => ({
   getCollectionFields(ctx) {
     const { uid } = ctx.params;
     const schema = strapi.contentTypes[uid];
-    if (!schema) return ctx.throw(404, 'Content type not found');
+    if (!schema) return ctx.throw(404, "Content type not found");
 
-    const SKIP_TYPES = ['media'];
+    const SKIP_TYPES = ["media"];
 
     const fields = Object.entries(schema.attributes)
-      .filter(([key, def]: [string, any]) =>
-        !SYSTEM_KEYS.has(key) &&
-        !SKIP_TYPES.includes(def.type) &&
-        !def.customField
+      .filter(
+        ([key, def]: [string, any]) => !SYSTEM_KEYS.has(key) && !SKIP_TYPES.includes(def.type) && !def.customField
       )
       .map(([key, def]: [string, any]) => ({
         key,
-        label: key.replace(/([A-Z])/g, ' $1').replace(/^./, (s: string) => s.toUpperCase()),
+        label: key.replace(/([A-Z])/g, " $1").replace(/^./, (s: string) => s.toUpperCase()),
         type: def.type,
       }));
 
@@ -115,15 +107,15 @@ const controller = ({ strapi }: { strapi: Core.Strapi }) => ({
   },
 
   async getTableData(ctx) {
-    const { contentType, page = '1', limit = '10', columns, locale } = ctx.query as Record<string, string>;
+    const { contentType, page = "1", limit = "10", columns, locale } = ctx.query as Record<string, string>;
 
-    if (!contentType) return ctx.throw(400, 'contentType is required');
+    if (!contentType) return ctx.throw(400, "contentType is required");
 
     const schema = strapi.contentTypes[contentType];
-    if (!schema) return ctx.throw(404, 'Content type not found');
+    if (!schema) return ctx.throw(404, "Content type not found");
 
-    const pageNum = Math.max(1, parseInt(page) || 1);
-    const limitNum = Math.min(Math.max(1, parseInt(limit) || 10), 100);
+    const pageNum = Math.max(1, parseInt(page, 10) || 1);
+    const limitNum = Math.min(Math.max(1, parseInt(limit, 10) || 10), 100);
 
     // When no explicit columns, load raw enabled fields from settings
     let rawEnabledFields: string[] | null = null;
@@ -131,7 +123,9 @@ const controller = ({ strapi }: { strapi: Core.Strapi }) => ({
       const stored = (await getPluginStore(strapi).get({ key: STORE_KEY })) as any;
       const exportFields = stored?.collections?.[contentType]?.exportFields;
       if (exportFields && exportFields.length > 0) {
-        rawEnabledFields = exportFields.filter((exportField: any) => exportField.enabled).map((exportField: any) => exportField.key);
+        rawEnabledFields = exportFields
+          .filter((exportField: any) => exportField.enabled)
+          .map((exportField: any) => exportField.key);
       }
     }
 
@@ -141,7 +135,7 @@ const controller = ({ strapi }: { strapi: Core.Strapi }) => ({
     // Fetch paginated entries and total count
     const [entries, total] = await Promise.all([
       strapi.documents(contentType as any).findMany({
-        populate: '*',
+        populate: "*",
         limit: limitNum,
         start: (pageNum - 1) * limitNum,
         ...localeParam,
@@ -152,25 +146,25 @@ const controller = ({ strapi }: { strapi: Core.Strapi }) => ({
     // Build schema-derived field lists for flattening
     const attr = schema.attributes;
     const componentFieldDefs = Object.entries<any>(attr)
-      .filter(([, def]) => def.type === 'component')
+      .filter(([, def]) => def.type === "component")
       .map(([key, def]) => ({ key, repeatable: !!def.repeatable }));
     const relationFieldKeys = Object.entries<any>(attr)
-      .filter(([, def]) => def.type === 'relation')
+      .filter(([, def]) => def.type === "relation")
       .map(([key]) => key);
     const skipFieldKeys = Object.entries<any>(attr)
-      .filter(([, def]) => def.type === 'media' || def.customField)
+      .filter(([, def]) => def.type === "media" || def.customField)
       .map(([key]) => key);
 
     // Recursively flatten a component object into prefix_subField columns
     function flattenComp(obj: any, prefix: string): Record<string, any> {
       const flat: Record<string, any> = {};
-      if (!obj || typeof obj !== 'object') return flat;
+      if (!obj || typeof obj !== "object") return flat;
       for (const [field, fieldValue] of Object.entries(obj)) {
-        if (field === 'id' || field === '__component') continue;
+        if (field === "id" || field === "__component") continue;
         const colKey = `${prefix}_${field}`;
         if (fieldValue === null || fieldValue === undefined) flat[colKey] = null;
         else if (Array.isArray(fieldValue)) flat[colKey] = JSON.stringify(fieldValue);
-        else if (typeof fieldValue === 'object') Object.assign(flat, flattenComp(fieldValue, colKey));
+        else if (typeof fieldValue === "object") Object.assign(flat, flattenComp(fieldValue, colKey));
         else flat[colKey] = fieldValue;
       }
       return flat;
@@ -188,14 +182,17 @@ const controller = ({ strapi }: { strapi: Core.Strapi }) => ({
             result[key] = value
               ? JSON.stringify((value as any[]).map(({ id, __component, ...rest }: any) => rest))
               : null;
-          } else if (value && typeof value === 'object') {
+          } else if (value && typeof value === "object") {
             Object.assign(result, flattenComp(value as any, key));
           }
           continue;
         }
 
         if (relationFieldKeys.includes(key)) {
-          if (!value) { result[key] = null; continue; }
+          if (!value) {
+            result[key] = null;
+            continue;
+          }
           if (Array.isArray(value)) {
             result[key] = (value as any[])
               .map((item: any) => {
@@ -203,19 +200,28 @@ const controller = ({ strapi }: { strapi: Core.Strapi }) => ({
                 return null;
               })
               .filter(Boolean)
-              .join(', ');
+              .join(", ");
           } else {
             let display: any = null;
             for (const shortcut of SHORTCUT_FIELDS) {
-              if ((value as any)[shortcut] !== undefined) { display = (value as any)[shortcut]; break; }
+              if ((value as any)[shortcut] !== undefined) {
+                display = (value as any)[shortcut];
+                break;
+              }
             }
             result[key] = display;
           }
           continue;
         }
 
-        if (value === null || value === undefined) { result[key] = null; continue; }
-        if (Array.isArray(value)) { result[key] = (value as any[]).join('|'); continue; }
+        if (value === null || value === undefined) {
+          result[key] = null;
+          continue;
+        }
+        if (Array.isArray(value)) {
+          result[key] = (value as any[]).join("|");
+          continue;
+        }
         result[key] = value;
       }
       return result;
@@ -227,12 +233,15 @@ const controller = ({ strapi }: { strapi: Core.Strapi }) => ({
     let cols: string[];
     if (columns) {
       // Explicit flattened columns from ColumnSorter — use as-is
-      cols = columns.split(',').map((c) => c.trim()).filter(Boolean);
+      cols = columns
+        .split(",")
+        .map((c) => c.trim())
+        .filter(Boolean);
     } else if (rawEnabledFields) {
       // Expand raw field names (e.g. 'address') to all matching flattened keys (e.g. 'address_street', 'address_city')
       const allFlatKeys = flattenedEntries.length > 0 ? Object.keys(flattenedEntries[0]) : [];
       cols = allFlatKeys.filter((flatKey) =>
-        rawEnabledFields!.some((raw) => flatKey === raw || flatKey.startsWith(`${raw}_`))
+        rawEnabledFields?.some((raw) => flatKey === raw || flatKey.startsWith(`${raw}_`))
       );
       if (cols.length === 0) cols = allFlatKeys;
     } else {

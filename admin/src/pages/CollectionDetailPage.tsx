@@ -1,9 +1,9 @@
-import { useEffect, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
 import { Box, Button, Flex, Main, Typography } from "@strapi/design-system";
 import { useNotification } from "@strapi/strapi/admin";
-import { DraggableFieldList } from "../components/DraggableFieldList";
+import { useEffect, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import type { FieldConfig } from "../components/DraggableFieldList";
+import { DraggableFieldList } from "../components/DraggableFieldList";
 
 const CollectionDetailPage = () => {
   const { uid } = useParams<{ uid: string }>();
@@ -40,15 +40,17 @@ const CollectionDetailPage = () => {
         );
         setDisplayName(colInfo?.displayName ?? decodedUid);
 
-        const buildFieldList = (
-          stored: { key: string; enabled: boolean }[] | undefined
-        ): FieldConfig[] => {
+        const buildFieldList = (stored: { key: string; enabled: boolean }[] | undefined): FieldConfig[] => {
           if (stored && stored.length > 0) {
             const storedKeys = new Set(stored.map((field) => field.key));
             const schemaMap = new Map(schemaFields.map((field) => [field.key, field.label]));
             const result: FieldConfig[] = stored
               .filter((field) => schemaMap.has(field.key))
-              .map((field) => ({ key: field.key, label: schemaMap.get(field.key)!, enabled: field.enabled }));
+              .map((field) => ({
+                key: field.key,
+                label: schemaMap.get(field.key) ?? field.key,
+                enabled: field.enabled,
+              }));
             for (const sf of schemaFields) {
               if (!storedKeys.has(sf.key)) {
                 result.push({ key: sf.key, label: sf.label, enabled: true });
@@ -70,7 +72,7 @@ const CollectionDetailPage = () => {
 
     fetchData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [uid]);
+  }, [uid, toggleNotification]);
 
   const handleSave = async () => {
     if (!uid) return;

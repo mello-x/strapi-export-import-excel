@@ -19,11 +19,23 @@ const exportController = ({ strapi }: { strapi: Core.Strapi }) => {
         const base = ctBase(contentType as string);
 
         if (format === "excel") {
-          const buffer = await exportService.exportData("excel", contentType as string, filters, columns as string | undefined, locale as string | undefined);
+          const buffer = await exportService.exportData(
+            "excel",
+            contentType as string,
+            filters,
+            columns as string | undefined,
+            locale as string | undefined
+          );
           setExcelHeaders(ctx, `${base}-export-${today()}.xlsx`);
           ctx.body = buffer;
         } else {
-          const data = await exportService.exportData("json", contentType as string, filters, undefined, locale as string | undefined);
+          const data = await exportService.exportData(
+            "json",
+            contentType as string,
+            filters,
+            undefined,
+            locale as string | undefined
+          );
           ctx.set("Content-Type", "application/json");
           ctx.set("Content-Disposition", `attachment; filename="${base}-export-${today()}.json"`);
           ctx.body = JSON.stringify(data, null, 2);

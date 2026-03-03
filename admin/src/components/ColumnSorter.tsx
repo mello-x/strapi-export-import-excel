@@ -1,18 +1,18 @@
 import {
-  DndContext,
   closestCenter,
-  PointerSensor,
+  DndContext,
+  type DragEndEvent,
   KeyboardSensor,
+  PointerSensor,
   useSensor,
   useSensors,
-  type DragEndEvent,
 } from "@dnd-kit/core";
 import {
+  arrayMove,
+  horizontalListSortingStrategy,
   SortableContext,
   sortableKeyboardCoordinates,
   useSortable,
-  horizontalListSortingStrategy,
-  arrayMove,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Box, Button, Flex, Typography } from "@strapi/design-system";
@@ -47,6 +47,7 @@ const ColumnChip = ({ col, onDelete }: ColumnChipProps) => {
     >
       <span style={{ fontSize: "13px", color: "#32324D" }}>{col}</span>
       <button
+        type="button"
         onClick={(e) => {
           e.stopPropagation();
           onDelete(col);

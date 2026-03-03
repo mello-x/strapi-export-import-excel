@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useState } from "react";
-import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { Box, Button, Flex, Main, Typography } from "@strapi/design-system";
 import { useNotification } from "@strapi/strapi/admin";
-import { StrapiTable } from "../components/StrapiTable";
+import { useCallback, useEffect, useState } from "react";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { ColumnSorter } from "../components/ColumnSorter";
+import { StrapiTable } from "../components/StrapiTable";
 
 const ExportPreviewPage = () => {
   const { uid } = useParams<{ uid: string }>();
@@ -41,9 +41,7 @@ const ExportPreviewPage = () => {
           params.set("locale", locale);
         }
 
-        const res = await fetch(
-          `/api/strapi-export-import-excel/tabledata?${params}`
-        );
+        const res = await fetch(`/api/strapi-export-import-excel/tabledata?${params}`);
         if (!res.ok) throw new Error("Failed to fetch table data");
 
         const data = await res.json();
@@ -93,7 +91,7 @@ const ExportPreviewPage = () => {
 
     init();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [contentType]);
+  }, [contentType, loadTableData]);
 
   const applyChange = (newCols: string[], page: number, newPerPage = perPage) => {
     setColumns(newCols);
@@ -127,9 +125,7 @@ const ExportPreviewPage = () => {
         }
       }
 
-      const response = await fetch(
-        `/api/strapi-export-import-excel/export?${params}`
-      );
+      const response = await fetch(`/api/strapi-export-import-excel/export?${params}`);
       if (!response.ok) throw new Error("Export request failed");
 
       const blob = await response.blob();
@@ -175,11 +171,7 @@ const ExportPreviewPage = () => {
               </Typography>
             )}
           </Flex>
-          <Button
-            onClick={handleDownload}
-            loading={isDownloading}
-            disabled={loading || columns.length === 0}
-          >
+          <Button onClick={handleDownload} loading={isDownloading} disabled={loading || columns.length === 0}>
             Download Excel
           </Button>
         </Flex>
@@ -196,7 +188,12 @@ const ExportPreviewPage = () => {
           <ColumnSorter
             columns={columns}
             onColumnsReorder={(newCols) => applyChange(newCols, 1)}
-            onColumnDelete={(col) => applyChange(columns.filter((c) => c !== col), 1)}
+            onColumnDelete={(col) =>
+              applyChange(
+                columns.filter((c) => c !== col),
+                1
+              )
+            }
             onResetColumns={() => applyChange(allColumns, 1)}
             originalColumnsCount={allColumns.length}
           />
