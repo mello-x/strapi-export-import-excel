@@ -29,16 +29,6 @@ npm install strapi-export-import-excel
 yarn add strapi-export-import-excel
 ```
 
-Then register the plugin in `config/plugins.ts`:
-
-```ts
-export default {
-  'strapi-export-import-excel': {
-    enabled: true,
-  },
-};
-```
-
 Rebuild your Strapi admin and restart the server:
 
 ```bash
