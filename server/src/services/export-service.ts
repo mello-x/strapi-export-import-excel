@@ -1,5 +1,6 @@
 import type { Core } from "@strapi/strapi";
 import * as XLSX from "xlsx";
+import { buildQuery, validateFilter } from "../utils/export-utils";
 
 const getPluginStore = (strapi: Core.Strapi) => strapi.store({ type: "plugin", name: "strapi-export-import-excel" });
 
@@ -73,12 +74,16 @@ const exportService = ({ strapi }: { strapi: Core.Strapi }) => ({
           }
         }
 
-        const isLocalized = strapi.contentTypes[ct]?.pluginOptions?.i18n?.localized ?? false;
+        const schema = strapi.contentTypes[ct];
+        const validatedFilters = validateFilter(filters ?? {}, schema.attributes);
+
+        const isLocalized = schema?.pluginOptions?.i18n?.localized ?? false;
         const localeParam = isLocalized && locale ? { locale } : {};
 
+        const query = buildQuery(validatedFilters);
+
         const entries = await strapi.documents(ct as any).findMany({
-          filters: { ...filters },
-          populate: "*",
+          ...query,
           ...localeParam,
         });
 

@@ -15,7 +15,8 @@ const exportController = ({ strapi }: { strapi: Core.Strapi }) => {
   return {
     async export(ctx) {
       try {
-        const { format = "excel", contentType, columns, locale, ...filters } = ctx.query;
+        const { format = "excel", contentType, sortOrder, locale, ...filters } = ctx.query;
+        const columnsParam = sortOrder as string | undefined;
         const base = ctBase(contentType as string);
 
         if (format === "excel") {
@@ -23,7 +24,7 @@ const exportController = ({ strapi }: { strapi: Core.Strapi }) => {
             "excel",
             contentType as string,
             filters,
-            columns as string | undefined,
+            columnsParam,
             locale as string | undefined
           );
           setExcelHeaders(ctx, `${base}-export-${today()}.xlsx`);

@@ -1,4 +1,5 @@
 import type { Core } from "@strapi/strapi";
+import { buildQuery, validateFilter } from "../utils/export-utils";
 
 const STORE_KEY = "settings";
 
@@ -132,12 +133,13 @@ const controller = ({ strapi }: { strapi: Core.Strapi }) => ({
     const isLocalized = schema.pluginOptions?.i18n?.localized ?? false;
     const localeParam = isLocalized && locale ? { locale } : {};
 
+    const validatedFilters = validateFilter({}, schema.attributes);
+    const query = buildQuery(validatedFilters, limitNum, (pageNum - 1) * limitNum);
+
     // Fetch paginated entries and total count
     const [entries, total] = await Promise.all([
       strapi.documents(contentType as any).findMany({
-        populate: "*",
-        limit: limitNum,
-        start: (pageNum - 1) * limitNum,
+        ...query,
         ...localeParam,
       }),
       strapi.documents(contentType as any).count({ ...localeParam }),

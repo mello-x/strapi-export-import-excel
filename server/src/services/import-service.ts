@@ -1,24 +1,16 @@
 import * as fs from "node:fs";
 import type { Core } from "@strapi/strapi";
 import * as XLSX from "xlsx";
-
-const SYSTEM_KEYS = [
-  "documentId",
-  "locale",
-  "createdAt",
-  "updatedAt",
-  "publishedAt",
-  "createdBy",
-  "updatedBy",
-  "localizations",
-  "status",
-];
-
-const SHORTCUT_FIELDS = ["email", "businessEmail", "name", "title", "tickerCode"];
-
-function toCamel(str: string): string {
-  return str.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
-}
+import {
+  hasChanges,
+  type ImportBatch,
+  type ImportResults,
+  mergeResults,
+  parseJsonIfNeeded,
+  SHORTCUT_FIELDS,
+  setNestedPath,
+  toCamel,
+} from "../utils/import-utils";
 
 const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
   async getFileHeaders(file: any): Promise<string[]> {
@@ -53,7 +45,8 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
     file: any,
     targetContentType: string | null = null,
     locale: string | null = null,
-    identifierField: string | null = null
+    identifierField: string | null = null,
+    bulkLocaleUpload = false
   ) {
     const fileName = file.name || file.originalFilename || "unknown.json";
     const fileExtension = fileName.split(".").pop().toLowerCase();
@@ -63,19 +56,21 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
       throw new Error("File path not found");
     }
 
-    let importData: Record<string, any[]>;
-
     try {
       if (fileExtension === "json") {
         const fileContent = fs.readFileSync(filePath, "utf8");
-        importData = JSON.parse(fileContent);
+        const importData: Record<string, any[]> = JSON.parse(fileContent);
+        return await this.bulkInsertData(importData, locale, identifierField);
       } else if (fileExtension === "xlsx" || fileExtension === "xls") {
-        importData = this.transformExcelData(filePath, targetContentType);
+        if (bulkLocaleUpload && targetContentType) {
+          const batches = this.transformExcelDataByLocale(filePath, targetContentType);
+          return await this.bulkInsertBatches(batches, identifierField);
+        }
+        const importData = this.transformExcelData(filePath, targetContentType);
+        return await this.bulkInsertData(importData, locale, identifierField);
       } else {
         throw new Error(`Unsupported file type: ${fileExtension}`);
       }
-
-      return await this.bulkInsertData(importData, locale, identifierField);
     } catch (error) {
       if (filePath && fs.existsSync(filePath)) {
         fs.unlinkSync(filePath);
@@ -84,90 +79,14 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
     }
   },
 
+  // Normal mode: sheet name = content type (or use targetContentType override)
   transformExcelData(filePath: string, targetContentType: string | null = null): Record<string, any[]> {
     const workbook = XLSX.readFile(filePath);
     const importData: Record<string, any[]> = {};
 
-    const parseJsonIfNeeded = (value: any): any => {
-      if (typeof value !== "string") return value;
-      const trimmed = value.trim();
-      if (!trimmed.startsWith("[") && !trimmed.startsWith("{")) return value;
-      try {
-        return JSON.parse(trimmed);
-      } catch {
-        return value;
-      }
-    };
-
-    // Recursively set a value at a nested path split by '_'
-    const setNestedPath = (obj: Record<string, any>, path: string, value: any): void => {
-      const idx = path.indexOf("_");
-      if (idx === -1) {
-        obj[path] = value;
-      } else {
-        const key = path.slice(0, idx);
-        const rest = path.slice(idx + 1);
-        if (!obj[key] || typeof obj[key] !== "object") obj[key] = {};
-        setNestedPath(obj[key], rest, value);
-      }
-    };
-
-    const unflattenRow = (rows: any[], ctName: string): any[] => {
-      const attr = strapi.contentTypes[ctName]?.attributes || {};
-
-      // Identify component fields and whether they're repeatable
-      const compFieldDefs = Object.entries<any>(attr)
-        .filter(([, def]) => def.type === "component")
-        .map(([name, def]) => ({ name, repeatable: !!def.repeatable }));
-
-      return rows.map((row) => {
-        const rowData: Record<string, any> = {};
-
-        for (const [key, rawValue] of Object.entries(row)) {
-          const value = rawValue === "" || rawValue === undefined ? null : rawValue;
-
-          // Check if this column belongs to a component field (exact or flattened sub-path)
-          const compDef = compFieldDefs.find((c) => key === c.name || key.startsWith(`${c.name}_`));
-
-          if (compDef) {
-            if (key === compDef.name) {
-              // The component column itself — repeatable components stored as JSON
-              if (typeof value === "string" && (value.startsWith("[") || value.startsWith("{"))) {
-                try {
-                  rowData[compDef.name] = JSON.parse(value);
-                } catch {
-                  rowData[compDef.name] = null;
-                }
-              } else {
-                rowData[compDef.name] = value;
-              }
-            } else {
-              // Flattened single component: compName_subPath
-              if (!rowData[compDef.name]) rowData[compDef.name] = {};
-              const subPath = key.slice(compDef.name.length + 1);
-              setNestedPath(rowData[compDef.name], subPath, value);
-            }
-            continue;
-          }
-
-          // Regular field
-          if (value === null) {
-            rowData[key] = null;
-          } else if (attr[key] && (attr[key] as any).customField && (attr[key] as any).default === "[]") {
-            rowData[key] = String(value).split("|");
-          } else {
-            rowData[key] = parseJsonIfNeeded(value);
-          }
-        }
-
-        return rowData;
-      });
-    };
-
     workbook.SheetNames.forEach((sheetName) => {
       const worksheet = workbook.Sheets[sheetName];
       const rows = XLSX.utils.sheet_to_json(worksheet);
-
       if (!rows.length) return;
 
       const ctName = targetContentType || `api::${sheetName}.${sheetName}`;
@@ -176,16 +95,88 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
         strapi.log.error(`Unknown content-type: ${ctName}`);
         return;
       }
-
       if (!strapi.contentTypes[ctName]) {
         strapi.log.error(`Content type ${ctName} not found`);
         return;
       }
 
-      importData[ctName] = unflattenRow(rows, ctName);
+      importData[ctName] = this.unflattenRows(rows, ctName);
     });
 
     return importData;
+  },
+
+  // Bulk locale mode: sheet name = locale code, targetContentType required
+  transformExcelDataByLocale(filePath: string, targetContentType: string): ImportBatch[] {
+    const workbook = XLSX.readFile(filePath);
+    const batches: ImportBatch[] = [];
+
+    if (!strapi.contentTypes[targetContentType]) {
+      strapi.log.error(`Content type ${targetContentType} not found`);
+      return batches;
+    }
+
+    workbook.SheetNames.forEach((sheetName) => {
+      const worksheet = workbook.Sheets[sheetName];
+      const rows = XLSX.utils.sheet_to_json(worksheet);
+      if (!rows.length) return;
+
+      batches.push({
+        contentType: targetContentType,
+        locale: sheetName,
+        entries: this.unflattenRows(rows, targetContentType),
+      });
+    });
+
+    return batches;
+  },
+
+  // Shared row-unflattening logic used by both transform methods
+  unflattenRows(rows: any[], ctName: string): any[] {
+    const attr = strapi.contentTypes[ctName]?.attributes || {};
+
+    const compFieldDefs = Object.entries<any>(attr)
+      .filter(([, def]) => def.type === "component")
+      .map(([name, def]) => ({ name, repeatable: !!def.repeatable }));
+
+    return rows.map((row) => {
+      const rowData: Record<string, any> = {};
+
+      for (const [key, rawValue] of Object.entries(row)) {
+        const value = rawValue === "" || rawValue === undefined ? null : rawValue;
+
+        const compDef = compFieldDefs.find((c) => key === c.name || key.startsWith(`${c.name}_`));
+
+        if (compDef) {
+          if (key === compDef.name) {
+            if (typeof value === "string" && (value.startsWith("[") || value.startsWith("{"))) {
+              try {
+                rowData[compDef.name] = JSON.parse(value);
+              } catch {
+                rowData[compDef.name] = null;
+              }
+            } else {
+              rowData[compDef.name] = value;
+            }
+          } else {
+            if (!rowData[compDef.name]) rowData[compDef.name] = {};
+            const subPath = key.slice(compDef.name.length + 1);
+            setNestedPath(rowData[compDef.name], subPath, value);
+          }
+          continue;
+        }
+
+        if (value === null) {
+          rowData[key] = null;
+        } else if (attr[key] && (attr[key] as any).customField && (attr[key] as any).default === "[]") {
+          rowData[key] = String(value).split("|");
+        } else {
+          rowData[key] = parseJsonIfNeeded(value);
+        }
+      }
+
+      return rowData;
+    });
   },
 
   getRelationFields(contentType: string) {
@@ -297,48 +288,13 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
     return data;
   },
 
-  hasChanges(existing: Record<string, any>, incoming: Record<string, any>): boolean {
-    if (!incoming || typeof incoming !== "object") return false;
-    if (!existing || typeof existing !== "object") return true;
-
-    for (const key of Object.keys(incoming)) {
-      if (SYSTEM_KEYS.includes(key)) continue;
-      const newVal = incoming[key];
-      const oldVal = existing[key];
-
-      if (oldVal === undefined || newVal === undefined) continue;
-
-      if (newVal === null || typeof newVal !== "object") {
-        if (oldVal !== newVal) return true;
-        continue;
-      }
-
-      if (Array.isArray(newVal)) {
-        if (!Array.isArray(oldVal)) return true;
-        if (newVal.length !== oldVal.length) return true;
-        for (let i = 0; i < newVal.length; i++) {
-          if (typeof newVal[i] === "object" && typeof oldVal[i] === "object" && this.hasChanges(oldVal[i], newVal[i])) {
-            return true;
-          } else if (typeof newVal[i] !== "object" && typeof oldVal[i] !== "object" && newVal[i] !== oldVal[i]) {
-            return true;
-          }
-        }
-        continue;
-      }
-
-      if (typeof newVal === "object" && typeof oldVal === "object") {
-        if (this.hasChanges(oldVal, newVal)) return true;
-      }
-    }
-    return false;
-  },
-
+  // Normal mode: single locale for all batches
   async bulkInsertData(
     importData: Record<string, any[]>,
     locale: string | null = null,
     identifierField: string | null = null
   ) {
-    const results = { created: 0, updated: 0, skipped: 0, errors: [] as string[] };
+    const results: ImportResults = { created: 0, updated: 0, skipped: 0, errors: [] };
 
     for (const [contentType, entries] of Object.entries(importData)) {
       if (!strapi.contentTypes[contentType]) {
@@ -351,18 +307,29 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
       }
 
       try {
-        const { created, updated, skipped, errors } = await this.importEntries(
-          entries,
-          contentType,
-          locale,
-          identifierField
-        );
-        results.created += created;
-        results.updated += updated;
-        results.skipped += skipped;
-        results.errors = results.errors.concat(errors);
+        mergeResults(results, await this.importEntries(entries, contentType, locale, identifierField));
       } catch (err: any) {
         results.errors.push(err.message);
+      }
+    }
+
+    return results;
+  },
+
+  // Bulk locale mode: each batch carries its own locale
+  async bulkInsertBatches(batches: ImportBatch[], identifierField: string | null = null) {
+    const results: ImportResults = { created: 0, updated: 0, skipped: 0, errors: [] };
+
+    for (const { contentType, locale, entries } of batches) {
+      if (!strapi.contentTypes[contentType]) {
+        results.errors.push(`Content type ${contentType} not found`);
+        continue;
+      }
+
+      try {
+        mergeResults(results, await this.importEntries(entries, contentType, locale, identifierField));
+      } catch (err: any) {
+        results.errors.push(`[${locale}] ${err.message}`);
       }
     }
 
@@ -392,7 +359,6 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
         try {
           let { id, ...data } = entry;
 
-          // Skip rows where the identifier field is empty/null
           if (identifierField && identifierField !== "id") {
             const identifierValue = entry[identifierField];
             if (identifierValue == null || (typeof identifierValue === "string" && !identifierValue.trim())) {
@@ -420,13 +386,34 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
           data = this.handleComponents(data, existing, contentType);
 
           if (existing) {
-            if (this.hasChanges(existing, data)) {
+            if (hasChanges(existing, data)) {
               await strapi.documents(contentType as any).update({
                 documentId: existing.documentId,
                 data,
                 ...localeParam,
               } as any);
               results.updated++;
+            }
+          } else if (locale && identifierField && identifierField !== "id" && entry[identifierField] != null) {
+            // In bulk locale mode, check if the document exists in any other locale so we can
+            // add this locale to the same document instead of creating a new unlinked one.
+            const existingAnyLocale = await strapi.documents(contentType as any).findFirst({
+              filters: { [identifierField]: { $eq: entry[identifierField] } } as any,
+              populate: "*",
+            } as any);
+            if (existingAnyLocale) {
+              await strapi.documents(contentType as any).update({
+                documentId: existingAnyLocale.documentId,
+                data,
+                ...localeParam,
+              } as any);
+              results.updated++;
+            } else {
+              await strapi.documents(contentType as any).create({
+                data,
+                ...localeParam,
+              } as any);
+              results.created++;
             }
           } else {
             await strapi.documents(contentType as any).create({

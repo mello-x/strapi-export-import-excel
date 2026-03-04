@@ -34,10 +34,11 @@ const importController = ({ strapi }: { strapi: Core.Strapi }) => ({
       const targetContentType = body.contentType;
       const locale = body.locale || null;
       const identifierField = body.identifierField || null;
+      const bulkLocaleUpload = body.bulkLocaleUpload === "true";
 
       const importService = strapi.plugin("strapi-export-import-excel").service("import-service");
 
-      const result = await importService.importData(file, targetContentType, locale, identifierField);
+      const result = await importService.importData(file, targetContentType, locale, identifierField, bulkLocaleUpload);
 
       let message = "Import completed successfully";
       if (result.errors && result.errors.length > 0) {

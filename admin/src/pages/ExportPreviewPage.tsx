@@ -1,6 +1,6 @@
 import { Box, Button, Flex, Main, Typography } from "@strapi/design-system";
 import { useNotification } from "@strapi/strapi/admin";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { ColumnSorter } from "../components/ColumnSorter";
 import { StrapiTable } from "../components/StrapiTable";
@@ -24,48 +24,32 @@ const ExportPreviewPage = () => {
   const baseName = contentType?.replace("api::", "").split(".")[0] ?? "";
   const locale = new URLSearchParams(location.search).get("locale");
 
-  const loadTableData = useCallback(
-    async (cols: string[], page: number, limit: number) => {
-      if (!contentType) return;
-      setLoading(true);
-      try {
-        const params = new URLSearchParams({
-          contentType,
-          page: String(page),
-          limit: String(limit),
-        });
-        if (cols.length > 0) {
-          params.set("columns", cols.join(","));
-        }
-        if (locale) {
-          params.set("locale", locale);
-        }
+  // Stable ref so notification can be called without being a dep
+  const notifyRef = useRef(toggleNotification);
+  notifyRef.current = toggleNotification;
 
-        const res = await fetch(`/api/strapi-export-import-excel/tabledata?${params}`);
-        if (!res.ok) throw new Error("Failed to fetch table data");
+  // Used for pagination — called from event handlers, not effects
+  const loadPage = async (cols: string[], page: number, limit: number, ct: string, loc: string | null) => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({ contentType: ct, page: String(page), limit: String(limit) });
+      if (cols.length > 0) params.set("columns", cols.join(","));
+      if (loc) params.set("locale", loc);
 
-        const data = await res.json();
-        setTableData(data.data ?? []);
-        setTotalRows(data.total ?? 0);
+      const res = await fetch(`/api/strapi-export-import-excel/tabledata?${params}`);
+      if (!res.ok) throw new Error("Failed to fetch table data");
 
-        // If columns not set yet, use the columns from the response
-        if (cols.length === 0 && data.columns?.length > 0) {
-          setAllColumns(data.columns);
-          setColumns(data.columns);
-        }
-      } catch (error: any) {
-        toggleNotification({
-          type: "danger",
-          message: `Failed to load data: ${error.message}`,
-        });
-      } finally {
-        setLoading(false);
-      }
-    },
-    [contentType, locale, toggleNotification]
-  );
+      const data = await res.json();
+      setTableData(data.data ?? []);
+      setTotalRows(data.total ?? 0);
+    } catch (error: any) {
+      notifyRef.current({ type: "danger", message: `Failed to load data: ${error.message}` });
+    } finally {
+      setLoading(false);
+    }
+  };
 
-  // Initial load: settings → columns → table data
+  // Initial load — fetchData is defined inside so linter has no complaints
   useEffect(() => {
     if (!contentType) return;
 
@@ -77,47 +61,52 @@ const ExportPreviewPage = () => {
         const colSettings = data.collections?.[contentType];
         if (colSettings?.exportFields) {
           initialCols = colSettings.exportFields
-            .filter((field: { key: string; enabled: boolean }) => field.enabled)
-            .map((field: { key: string; enabled: boolean }) => field.key);
+            .filter((f: { key: string; enabled: boolean }) => f.enabled)
+            .map((f: { key: string; enabled: boolean }) => f.key);
         }
       } catch {
-        // proceed without settings, server will auto-detect columns
+        // proceed without settings
       }
 
       setAllColumns(initialCols);
       setColumns(initialCols);
-      await loadTableData(initialCols, 1, 10);
+
+      // Fetch initial table data
+      setLoading(true);
+      try {
+        const params = new URLSearchParams({ contentType, page: "1", limit: "10" });
+        if (initialCols.length > 0) params.set("columns", initialCols.join(","));
+        if (locale) params.set("locale", locale);
+
+        const res = await fetch(`/api/strapi-export-import-excel/tabledata?${params}`);
+        if (!res.ok) throw new Error("Failed to fetch table data");
+
+        const data = await res.json();
+        setTableData(data.data ?? []);
+        setTotalRows(data.total ?? 0);
+
+        if (initialCols.length === 0 && data.columns?.length > 0) {
+          setAllColumns(data.columns);
+          setColumns(data.columns);
+        }
+      } catch (error: any) {
+        notifyRef.current({ type: "danger", message: `Failed to load data: ${error.message}` });
+      } finally {
+        setLoading(false);
+      }
     };
 
     init();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [contentType, loadTableData]);
-
-  const applyChange = (newCols: string[], page: number, newPerPage = perPage) => {
-    setColumns(newCols);
-    setCurrentPage(page);
-    if (newPerPage !== perPage) setPerPage(newPerPage);
-    loadTableData(newCols, page, newPerPage);
-  };
+  }, [contentType, locale]); // locale is stable (from URL), safe to include
 
   const handleDownload = async () => {
     if (!contentType) return;
     setIsDownloading(true);
     try {
-      const params = new URLSearchParams({
-        format: "excel",
-        contentType,
-      });
+      const params = new URLSearchParams({ format: "excel", contentType });
+      if (columns.length > 0) params.set("sortOrder", columns.join(","));
+      if (locale) params.set("locale", locale);
 
-      if (columns.length > 0) {
-        params.set("columns", columns.join(","));
-      }
-
-      if (locale) {
-        params.set("locale", locale);
-      }
-
-      // Forward other filters from URL search params (excluding already-set keys)
       const filterSearch = new URLSearchParams(location.search);
       for (const [key, value] of filterSearch.entries()) {
         if (!["format", "contentType", "columns", "locale"].includes(key)) {
@@ -138,9 +127,9 @@ const ExportPreviewPage = () => {
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
 
-      toggleNotification({ type: "success", message: "Export completed successfully" });
+      notifyRef.current({ type: "success", message: "Export completed successfully" });
     } catch (error: any) {
-      toggleNotification({ type: "danger", message: `Export failed: ${error.message}` });
+      notifyRef.current({ type: "danger", message: `Export failed: ${error.message}` });
     } finally {
       setIsDownloading(false);
     }
@@ -177,36 +166,18 @@ const ExportPreviewPage = () => {
         </Flex>
 
         {/* Column Sorter */}
-        <Box
-          style={{
-            border: "1px solid #E3E3E8",
-            borderRadius: "8px",
-            padding: "20px",
-            marginBottom: "20px",
-          }}
-        >
+        <Box style={{ border: "1px solid #E3E3E8", borderRadius: "8px", padding: "20px", marginBottom: "20px" }}>
           <ColumnSorter
             columns={columns}
-            onColumnsReorder={(newCols) => applyChange(newCols, 1)}
-            onColumnDelete={(col) =>
-              applyChange(
-                columns.filter((c) => c !== col),
-                1
-              )
-            }
-            onResetColumns={() => applyChange(allColumns, 1)}
+            onColumnsReorder={(newCols) => setColumns(newCols)}
+            onColumnDelete={(col) => setColumns((prev) => prev.filter((c) => c !== col))}
+            onResetColumns={() => setColumns([...allColumns])}
             originalColumnsCount={allColumns.length}
           />
         </Box>
 
         {/* Data Table */}
-        <Box
-          style={{
-            border: "1px solid #E3E3E8",
-            borderRadius: "8px",
-            overflow: "hidden",
-          }}
-        >
+        <Box style={{ border: "1px solid #E3E3E8", borderRadius: "8px", overflow: "hidden" }}>
           <StrapiTable
             columns={columns}
             data={tableData}
@@ -214,8 +185,15 @@ const ExportPreviewPage = () => {
             currentPage={currentPage}
             perPage={perPage}
             loading={loading}
-            onPageChange={(page) => applyChange(columns, page)}
-            onPerPageChange={(newPerPage) => applyChange(columns, 1, newPerPage)}
+            onPageChange={(page) => {
+              setCurrentPage(page);
+              if (contentType) loadPage(columns, page, perPage, contentType, locale);
+            }}
+            onPerPageChange={(newPerPage) => {
+              setPerPage(newPerPage);
+              setCurrentPage(1);
+              if (contentType) loadPage(columns, 1, newPerPage, contentType, locale);
+            }}
           />
         </Box>
       </Box>
