@@ -46,7 +46,8 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
     targetContentType: string | null = null,
     locale: string | null = null,
     identifierField: string | null = null,
-    bulkLocaleUpload = false
+    bulkLocaleUpload = false,
+    publishOnImport = false
   ) {
     const fileName = file.name || file.originalFilename || "unknown.json";
     const fileExtension = fileName.split(".").pop().toLowerCase();
@@ -60,14 +61,14 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
       if (fileExtension === "json") {
         const fileContent = fs.readFileSync(filePath, "utf8");
         const importData: Record<string, any[]> = JSON.parse(fileContent);
-        return await this.bulkInsertData(importData, locale, identifierField);
+        return await this.bulkInsertData(importData, locale, identifierField, publishOnImport);
       } else if (fileExtension === "xlsx" || fileExtension === "xls") {
         if (bulkLocaleUpload && targetContentType) {
           const batches = this.transformExcelDataByLocale(filePath, targetContentType);
-          return await this.bulkInsertBatches(batches, identifierField);
+          return await this.bulkInsertBatches(batches, identifierField, publishOnImport);
         }
         const importData = this.transformExcelData(filePath, targetContentType);
-        return await this.bulkInsertData(importData, locale, identifierField);
+        return await this.bulkInsertData(importData, locale, identifierField, publishOnImport);
       } else {
         throw new Error(`Unsupported file type: ${fileExtension}`);
       }
@@ -292,7 +293,8 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
   async bulkInsertData(
     importData: Record<string, any[]>,
     locale: string | null = null,
-    identifierField: string | null = null
+    identifierField: string | null = null,
+    publishOnImport = false
   ) {
     const results: ImportResults = { created: 0, updated: 0, skipped: 0, errors: [] };
 
@@ -307,7 +309,7 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
       }
 
       try {
-        mergeResults(results, await this.importEntries(entries, contentType, locale, identifierField));
+        mergeResults(results, await this.importEntries(entries, contentType, locale, identifierField, publishOnImport));
       } catch (err: any) {
         results.errors.push(err.message);
       }
@@ -317,7 +319,7 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
   },
 
   // Bulk locale mode: each batch carries its own locale
-  async bulkInsertBatches(batches: ImportBatch[], identifierField: string | null = null) {
+  async bulkInsertBatches(batches: ImportBatch[], identifierField: string | null = null, publishOnImport = false) {
     const results: ImportResults = { created: 0, updated: 0, skipped: 0, errors: [] };
 
     for (const { contentType, locale, entries } of batches) {
@@ -327,7 +329,7 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
       }
 
       try {
-        mergeResults(results, await this.importEntries(entries, contentType, locale, identifierField));
+        mergeResults(results, await this.importEntries(entries, contentType, locale, identifierField, publishOnImport));
       } catch (err: any) {
         results.errors.push(`[${locale}] ${err.message}`);
       }
@@ -340,12 +342,14 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
     entries: any[],
     contentType: string,
     locale: string | null = null,
-    identifierField: string | null = null
+    identifierField: string | null = null,
+    publishOnImport = false
   ) {
     const results = { created: 0, updated: 0, skipped: 0, errors: [] as string[] };
 
     const isLocalized = (strapi.contentTypes[contentType] as any)?.pluginOptions?.i18n?.localized ?? false;
     const localeParam = isLocalized && locale ? { locale } : {};
+    const statusParam = publishOnImport ? { status: "published" as const } : {};
 
     await strapi.db.transaction(async ({ rollback: _rollback, onRollback }) => {
       onRollback(() => {
@@ -386,10 +390,12 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
           data = this.handleComponents(data, existing, contentType);
 
           if (existing) {
-            if (hasChanges(existing, data)) {
+            const needsPublish = publishOnImport && existing.publishedAt == null;
+            if (hasChanges(existing, data) || needsPublish) {
               await strapi.documents(contentType as any).update({
                 documentId: existing.documentId,
                 data,
+                ...statusParam,
                 ...localeParam,
               } as any);
               results.updated++;
@@ -405,12 +411,14 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
               await strapi.documents(contentType as any).update({
                 documentId: existingAnyLocale.documentId,
                 data,
+                ...statusParam,
                 ...localeParam,
               } as any);
               results.updated++;
             } else {
               await strapi.documents(contentType as any).create({
                 data,
+                ...statusParam,
                 ...localeParam,
               } as any);
               results.created++;
@@ -418,6 +426,7 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
           } else {
             await strapi.documents(contentType as any).create({
               data,
+              ...statusParam,
               ...localeParam,
             } as any);
             results.created++;

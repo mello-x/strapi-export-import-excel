@@ -39,6 +39,7 @@ const ImportPanel = ({
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [isLoadingHeaders, setIsLoadingHeaders] = useState(false);
   const [bulkLocaleUpload, setBulkLocaleUpload] = useState(false);
+  const [publishOnImport, setPublishOnImport] = useState(false);
   const { toggleNotification } = useNotification();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -93,6 +94,9 @@ const ImportPanel = ({
     formData.append("file", pendingFile);
     formData.append("contentType", importCollection);
     formData.append("identifierField", identifierField);
+    if (publishOnImport) {
+      formData.append("publishOnImport", "true");
+    }
     if (bulkLocaleUpload) {
       formData.append("bulkLocaleUpload", "true");
     } else if (importIsLocalized && importLocale) {
@@ -141,7 +145,7 @@ const ImportPanel = ({
         <Typography variant="delta">Import</Typography>
       </Flex>
       <Typography textColor="neutral600" style={{ display: "block", marginBottom: "20px" }}>
-        Select a collection and upload an Excel or JSON file to import data.
+        Select a collection and upload an Excel file to import data.
       </Typography>
 
       <Typography variant="omega" style={{ display: "block", marginBottom: "6px" }}>
@@ -189,10 +193,27 @@ const ImportPanel = ({
         </>
       )}
 
+      <Box style={{ marginTop: "16px" }}>
+        <Typography variant="omega" style={{ display: "block", marginBottom: "6px" }}>
+          Publish on import
+        </Typography>
+        <Toggle
+          checked={publishOnImport}
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPublishOnImport(e.target.checked)}
+          onLabel="Published"
+          offLabel="Draft"
+        />
+        <Box style={{ marginTop: "4px" }}>
+          <Typography textColor="neutral500" variant="pi">
+            When off, imported entries will be saved as drafts. Required fields must be filled to publish.
+          </Typography>
+        </Box>
+      </Box>
+
       <input
         ref={fileInputRef}
         type="file"
-        accept=".xlsx,.xls,.json"
+        accept=".xlsx,.xls"
         onChange={handleFileScan}
         disabled={isLoadingHeaders || isImporting}
         style={{ display: "none" }}

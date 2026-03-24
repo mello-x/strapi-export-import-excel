@@ -1,6 +1,6 @@
 import type { Core } from "@strapi/strapi";
 import * as XLSX from "xlsx";
-import { buildQuery, validateFilter } from "../utils/export-utils";
+import { buildDeepPopulate, buildQuery, validateFilter } from "../utils/export-utils";
 
 const getPluginStore = (strapi: Core.Strapi) => strapi.store({ type: "plugin", name: "strapi-export-import-excel" });
 
@@ -80,7 +80,8 @@ const exportService = ({ strapi }: { strapi: Core.Strapi }) => ({
         const isLocalized = schema?.pluginOptions?.i18n?.localized ?? false;
         const localeParam = isLocalized && locale ? { locale } : {};
 
-        const query = buildQuery(validatedFilters);
+        const deepPopulate = buildDeepPopulate(strapi, ct);
+        const query = buildQuery(validatedFilters, undefined, undefined, deepPopulate);
 
         const entries = await strapi.documents(ct as any).findMany({
           ...query,
@@ -185,6 +186,19 @@ const exportService = ({ strapi }: { strapi: Core.Strapi }) => ({
         .filter(([, def]) => def.type === "component")
         .map(([key]) => key);
 
+      const COMPONENT_STRIP_KEYS = ["id", "__component", ...SYSTEM_KEYS];
+
+      function stripComponentData(obj: any): any {
+        if (Array.isArray(obj)) return obj.map(stripComponentData);
+        if (obj === null || typeof obj !== "object") return obj;
+        const cleaned: Record<string, any> = {};
+        for (const [k, v] of Object.entries(obj)) {
+          if (COMPONENT_STRIP_KEYS.includes(k)) continue;
+          cleaned[k] = stripComponentData(v);
+        }
+        return cleaned;
+      }
+
       function handleObject(key: string, value: any): any {
         if (!value) return undefined;
         if (relationFields.includes(key)) {
@@ -200,12 +214,12 @@ const exportService = ({ strapi }: { strapi: Core.Strapi }) => ({
         const flat: Record<string, any> = {};
         if (!obj || typeof obj !== "object") return flat;
         for (const [field, fieldValue] of Object.entries(obj)) {
-          if (field === "id" || field === "__component") continue;
+          if (COMPONENT_STRIP_KEYS.includes(field)) continue;
           const colKey = `${prefix}_${field}`;
           if (fieldValue === null || fieldValue === undefined) {
             flat[colKey] = null;
           } else if (Array.isArray(fieldValue)) {
-            flat[colKey] = JSON.stringify(fieldValue);
+            flat[colKey] = JSON.stringify(fieldValue.map((item: any) => stripComponentData(item)));
           } else if (typeof fieldValue === "object") {
             Object.assign(flat, flattenComp(fieldValue, colKey));
           } else {
@@ -229,7 +243,7 @@ const exportService = ({ strapi }: { strapi: Core.Strapi }) => ({
             if (componentFields.includes(key)) {
               if (Array.isArray(value)) {
                 // Repeatable component → JSON string (round-trippable on import)
-                result[key] = JSON.stringify(value.map(({ id, __component, ...rest }: any) => rest));
+                result[key] = JSON.stringify(value.map((item: any) => stripComponentData(item)));
               } else if (value && typeof value === "object") {
                 // Single component → recursive flatten into prefix_subField columns
                 Object.assign(result, flattenComp(value, key));
@@ -314,9 +328,10 @@ const exportService = ({ strapi }: { strapi: Core.Strapi }) => ({
   },
 
   async exportSingleEntry(contentType: string, entryId: string): Promise<Buffer> {
+    const deepPopulate = buildDeepPopulate(strapi, contentType);
     const entry = await strapi.documents(contentType as any).findFirst({
       filters: { id: { $eq: entryId } } as any,
-      populate: "*",
+      populate: deepPopulate,
     });
 
     if (!entry) {
