@@ -377,77 +377,63 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
     const localeParam = isLocalized && locale ? { locale } : {};
     const statusParam = publishOnImport ? { status: "published" as const } : {};
 
-    await strapi.db.transaction(async ({ rollback: _rollback, onRollback }) => {
-      onRollback(() => {
-        strapi.log.error("Transaction rolled back:", results.errors);
-      });
+    for (let i = 0; i < entries.length; i++) {
+      const entry = entries[i];
 
-      for (let i = 0; i < entries.length; i++) {
-        const entry = entries[i];
+      try {
+        if (identifierField && identifierField !== "id") {
+          const identifierValue = entry[identifierField];
+          if (identifierValue == null || (typeof identifierValue === "string" && !identifierValue.trim())) {
+            results.skipped++;
+            continue;
+          }
+        }
+
         let existing: any = null;
+        const { id, ...rawData } = entry;
 
-        try {
-          let { id, ...data } = entry;
+        if (identifierField && identifierField !== "id" && entry[identifierField] != null) {
+          existing = await strapi.documents(contentType as any).findFirst({
+            filters: { [identifierField]: { $eq: entry[identifierField] } } as any,
+            populate: "*",
+            ...localeParam,
+          } as any);
+        } else if (id && id !== "null" && id !== "undefined") {
+          existing = await strapi.documents(contentType as any).findFirst({
+            filters: { id } as any,
+            populate: "*",
+            ...localeParam,
+          } as any);
+        }
 
-          if (identifierField && identifierField !== "id") {
-            const identifierValue = entry[identifierField];
-            if (identifierValue == null || (typeof identifierValue === "string" && !identifierValue.trim())) {
-              strapi.log.info(`Skipping row ${i + 2}: empty identifier field "${identifierField}"`);
-              results.skipped++;
-              continue;
-            }
-          }
+        let data = await this.handleRelations(rawData, contentType, locale);
+        data = await this.handleComponentRelations(data, contentType, locale);
+        data = mergeComponentData(data, existing, compFields);
 
-          if (identifierField && identifierField !== "id" && entry[identifierField] != null) {
-            existing = await strapi.documents(contentType as any).findFirst({
-              filters: { [identifierField]: { $eq: entry[identifierField] } } as any,
-              populate: "*",
+        if (existing) {
+          const needsPublish = publishOnImport && existing.publishedAt == null;
+          if (hasChanges(existing, data) || needsPublish) {
+            await strapi.documents(contentType as any).update({
+              documentId: existing.documentId,
+              data,
+              ...statusParam,
               ...localeParam,
             } as any);
-          } else if (id && id !== "null" && id !== "undefined") {
-            existing = await strapi.documents(contentType as any).findFirst({
-              filters: { id } as any,
-              populate: "*",
+            results.updated++;
+          }
+        } else if (locale && identifierField && identifierField !== "id" && entry[identifierField] != null) {
+          const existingAnyLocale = await strapi.documents(contentType as any).findFirst({
+            filters: { [identifierField]: { $eq: entry[identifierField] } } as any,
+            populate: "*",
+          } as any);
+          if (existingAnyLocale) {
+            await strapi.documents(contentType as any).update({
+              documentId: existingAnyLocale.documentId,
+              data,
+              ...statusParam,
               ...localeParam,
             } as any);
-          }
-
-          data = await this.handleRelations(data, contentType, locale);
-          data = await this.handleComponentRelations(data, contentType, locale);
-          data = mergeComponentData(data, existing, compFields);
-
-          if (existing) {
-            const needsPublish = publishOnImport && existing.publishedAt == null;
-            if (hasChanges(existing, data) || needsPublish) {
-              await strapi.documents(contentType as any).update({
-                documentId: existing.documentId,
-                data,
-                ...statusParam,
-                ...localeParam,
-              } as any);
-              results.updated++;
-            }
-          } else if (locale && identifierField && identifierField !== "id" && entry[identifierField] != null) {
-            const existingAnyLocale = await strapi.documents(contentType as any).findFirst({
-              filters: { [identifierField]: { $eq: entry[identifierField] } } as any,
-              populate: "*",
-            } as any);
-            if (existingAnyLocale) {
-              await strapi.documents(contentType as any).update({
-                documentId: existingAnyLocale.documentId,
-                data,
-                ...statusParam,
-                ...localeParam,
-              } as any);
-              results.updated++;
-            } else {
-              await strapi.documents(contentType as any).create({
-                data,
-                ...statusParam,
-                ...localeParam,
-              } as any);
-              results.created++;
-            }
+            results.updated++;
           } else {
             await strapi.documents(contentType as any).create({
               data,
@@ -456,14 +442,21 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
             } as any);
             results.created++;
           }
-        } catch (err: any) {
-          results.errors.push(`Failed ${existing ? "updating" : "creating"} on row ${i + 2}: ${err.message}`);
-          results.created = 0;
-          results.updated = 0;
-          throw err;
+        } else {
+          await strapi.documents(contentType as any).create({
+            data,
+            ...statusParam,
+            ...localeParam,
+          } as any);
+          results.created++;
         }
+      } catch (err: any) {
+        const errorMsg = err?.message || err?.details?.errors?.[0]?.message || JSON.stringify(err);
+        strapi.log.error(`Row ${i + 2} failed: ${errorMsg}`, err?.details || err);
+        results.errors.push(`Row ${i + 2}: ${errorMsg}`);
+        results.skipped++;
       }
-    });
+    }
 
     return results;
   },
