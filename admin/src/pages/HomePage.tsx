@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { ExportPanel } from "../components/ExportPanel";
 import { ImportPanel } from "../components/ImportPanel";
 import type { Locale } from "../components/LocaleSelect";
+import { NestedImportPanel } from "../components/NestedImportPanel";
 
 interface Collection {
   uid: string;
@@ -53,7 +54,7 @@ const HomePage = () => {
         {isLoading ? (
           <Typography>Loading collections...</Typography>
         ) : (
-          <Flex gap={6} alignItems="stretch">
+          <>
             <ExportPanel
               collections={collections}
               locales={locales}
@@ -63,16 +64,19 @@ const HomePage = () => {
               onCollectionChange={setExportCollection}
               onLocaleChange={setExportLocale}
             />
-            <ImportPanel
-              collections={collections}
-              locales={locales}
-              importCollection={importCollection}
-              importLocale={importLocale}
-              defaultLocale={defaultLocale}
-              onCollectionChange={setImportCollection}
-              onLocaleChange={setImportLocale}
-            />
-          </Flex>
+            <Flex gap={6} alignItems="stretch" style={{ marginTop: "24px" }}>
+              <ImportPanel
+                collections={collections}
+                locales={locales}
+                importCollection={importCollection}
+                importLocale={importLocale}
+                defaultLocale={defaultLocale}
+                onCollectionChange={setImportCollection}
+                onLocaleChange={setImportLocale}
+              />
+              <NestedImportPanel collections={collections} locales={locales} defaultLocale={defaultLocale} />
+            </Flex>
+          </>
         )}
       </Box>
     </Main>

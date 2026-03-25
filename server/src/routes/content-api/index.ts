@@ -67,5 +67,11 @@ export default () => ({
       handler: "import-controller.import",
       config: { auth: false, policies: [] },
     },
+    {
+      method: "POST",
+      path: "/import-component",
+      handler: "import-controller.importComponent",
+      config: { auth: false, policies: [] },
+    },
   ],
 });

@@ -1,22 +1,18 @@
 import type { Core } from "@strapi/strapi";
 import * as XLSX from "xlsx";
-import { buildDeepPopulate, buildQuery, validateFilter } from "../utils/export-utils";
+import {
+  buildDeepPopulate,
+  buildQuery,
+  expandEntry,
+  extractSchemaFieldSets,
+  getNumberFields,
+  getSearchableFields,
+  parseFilters,
+  validateFilter,
+} from "../utils/export";
+import { SYSTEM_KEYS } from "../utils/import";
 
 const getPluginStore = (strapi: Core.Strapi) => strapi.store({ type: "plugin", name: "strapi-export-import-excel" });
-
-const SYSTEM_KEYS = [
-  "documentId",
-  "locale",
-  "createdAt",
-  "updatedAt",
-  "publishedAt",
-  "createdBy",
-  "updatedBy",
-  "localizations",
-  "status",
-];
-
-const SHORTCUT_FIELDS = ["email", "businessEmail", "name", "title", "tickerCode"];
 
 const exportService = ({ strapi }: { strapi: Core.Strapi }) => ({
   async exportData(
@@ -42,9 +38,9 @@ const exportService = ({ strapi }: { strapi: Core.Strapi }) => ({
       data: {},
     };
 
-    for (const ct of contentTypes) {
+    for (const currentContentType of contentTypes) {
       try {
-        const parsedFilters = this.parseFilters(rawFilters);
+        const parsedFilters = parseFilters(rawFilters);
 
         if (rawFilters._q) {
           parsedFilters._q = rawFilters._q;
@@ -52,8 +48,8 @@ const exportService = ({ strapi }: { strapi: Core.Strapi }) => ({
 
         let filters = parsedFilters.filters;
 
-        const searchable = this.getSearchableFields(strapi.contentTypes[ct]);
-        const numberSearchable = this.getNumberFields(strapi.contentTypes[ct]);
+        const searchable = getSearchableFields(strapi.contentTypes[currentContentType]);
+        const numberSearchable = getNumberFields(strapi.contentTypes[currentContentType]);
 
         if (parsedFilters._q) {
           const orConditions: any[] = [];
@@ -74,25 +70,25 @@ const exportService = ({ strapi }: { strapi: Core.Strapi }) => ({
           }
         }
 
-        const schema = strapi.contentTypes[ct];
+        const schema = strapi.contentTypes[currentContentType];
         const validatedFilters = validateFilter(filters ?? {}, schema.attributes);
 
         const isLocalized = schema?.pluginOptions?.i18n?.localized ?? false;
         const localeParam = isLocalized && locale ? { locale } : {};
 
-        const deepPopulate = buildDeepPopulate(strapi, ct);
+        const deepPopulate = buildDeepPopulate(strapi, currentContentType);
         const query = buildQuery(validatedFilters, undefined, undefined, deepPopulate);
 
-        const entries = await strapi.documents(ct as any).findMany({
+        const entries = await strapi.documents(currentContentType as any).findMany({
           ...query,
           ...localeParam,
         });
 
         if (entries && entries.length > 0) {
-          exportData.data[ct] = entries;
+          exportData.data[currentContentType] = entries;
         }
       } catch (error) {
-        strapi.log.error(`Failed to export ${ct}:`, error);
+        strapi.log.error(`Failed to export ${currentContentType}:`, error);
       }
     }
 
@@ -104,57 +100,6 @@ const exportService = ({ strapi }: { strapi: Core.Strapi }) => ({
     }
 
     return exportData;
-  },
-
-  getSearchableFields(contentTypeSchema: any): string[] {
-    return Object.entries<any>(contentTypeSchema.attributes)
-      .filter(
-        ([name, attr]) =>
-          ["string", "text", "richtext", "email", "uid", "enumeration"].includes(attr.type) && name !== "locale"
-      )
-      .map(([name]) => name);
-  },
-
-  getNumberFields(contentTypeSchema: any): string[] {
-    return [
-      ...Object.entries<any>(contentTypeSchema.attributes)
-        .filter(([, attr]) => ["number", "integer", "biginteger", "float", "decimal"].includes(attr.type))
-        .map(([name]) => name),
-      "id",
-    ];
-  },
-
-  parseFilters(filters: Record<string, any>): Record<string, any> {
-    const parsed: Record<string, any> = {};
-    for (const [key, value] of Object.entries(filters)) {
-      if (["page", "pageSize", "sort", "locale", "format", "contentType", "_q"].includes(key)) {
-        continue;
-      }
-
-      if (key.startsWith("filters[")) {
-        const match = key.match(/filters\[([^\]]+)\](?:\[(\d+)\])?\[([^\]]+)\](?:\[([^\]]+)\])?/);
-        if (match) {
-          const [, operator, index, field, condition] = match;
-          if (!parsed.filters) parsed.filters = {};
-
-          if (operator === "$and") {
-            if (!parsed.filters.$and) parsed.filters.$and = [];
-            const idx = parseInt(index, 10) || 0;
-            if (!parsed.filters.$and[idx]) parsed.filters.$and[idx] = {};
-
-            if (condition) {
-              if (!parsed.filters.$and[idx][field]) parsed.filters.$and[idx][field] = {};
-              parsed.filters.$and[idx][field][condition] = value;
-            } else {
-              parsed.filters.$and[idx][field] = value;
-            }
-          }
-        }
-      } else {
-        parsed[key] = value;
-      }
-    }
-    return parsed;
   },
 
   convertToExcel(
@@ -172,145 +117,49 @@ const exportService = ({ strapi }: { strapi: Core.Strapi }) => ({
         ?.replace(/[^\w\s-]/gi, "_")
         .substring(0, 31);
 
-      const attr = strapi.contentTypes[contentType]?.attributes || {};
-      const customFields = Object.entries<any>(attr)
-        .filter(([, def]) => def.customField)
-        .map(([key]) => key);
-      const relationFields = Object.entries<any>(attr)
-        .filter(([, def]) => def.type === "relation")
-        .map(([key]) => key);
-      const skipFields = Object.entries<any>(attr)
-        .filter(([, def]) => def.type === "media")
-        .map(([key]) => key);
-      const componentFields = Object.entries<any>(attr)
-        .filter(([, def]) => def.type === "component")
-        .map(([key]) => key);
-
-      const COMPONENT_STRIP_KEYS = ["id", "__component", ...SYSTEM_KEYS];
-
-      function stripComponentData(obj: any): any {
-        if (Array.isArray(obj)) return obj.map(stripComponentData);
-        if (obj === null || typeof obj !== "object") return obj;
-        const cleaned: Record<string, any> = {};
-        for (const [k, v] of Object.entries(obj)) {
-          if (COMPONENT_STRIP_KEYS.includes(k)) continue;
-          cleaned[k] = stripComponentData(v);
-        }
-        return cleaned;
-      }
-
-      function handleObject(key: string, value: any): any {
-        if (!value) return undefined;
-        if (relationFields.includes(key)) {
-          for (const field of SHORTCUT_FIELDS) {
-            if (value[field]) return value[field];
-          }
-        }
-        return undefined;
-      }
-
-      // Recursively flatten a component object into prefix_key columns
-      function flattenComp(obj: any, prefix: string): Record<string, any> {
-        const flat: Record<string, any> = {};
-        if (!obj || typeof obj !== "object") return flat;
-        for (const [field, fieldValue] of Object.entries(obj)) {
-          if (COMPONENT_STRIP_KEYS.includes(field)) continue;
-          const colKey = `${prefix}_${field}`;
-          if (fieldValue === null || fieldValue === undefined) {
-            flat[colKey] = null;
-          } else if (Array.isArray(fieldValue)) {
-            flat[colKey] = JSON.stringify(fieldValue.map((item: any) => stripComponentData(item)));
-          } else if (typeof fieldValue === "object") {
-            Object.assign(flat, flattenComp(fieldValue, colKey));
-          } else {
-            flat[colKey] = fieldValue;
-          }
-        }
-        return flat;
-      }
-
-      function cleanAndFlatten(obj: any): any {
-        if (Array.isArray(obj)) {
-          return obj.map(cleanAndFlatten);
-        } else if (obj !== null && typeof obj === "object") {
-          const result: Record<string, any> = {};
-          for (const key in obj) {
-            const value = obj[key];
-            if (SYSTEM_KEYS.includes(key)) continue;
-            if (customFields.includes(key)) continue;
-            if ([...skipFields, "wishlist", "availableSlot"].includes(key)) continue;
-
-            if (componentFields.includes(key)) {
-              if (Array.isArray(value)) {
-                // Repeatable component → JSON string (round-trippable on import)
-                result[key] = JSON.stringify(value.map((item: any) => stripComponentData(item)));
-              } else if (value && typeof value === "object") {
-                // Single component → recursive flatten into prefix_subField columns
-                Object.assign(result, flattenComp(value, key));
-              }
-              continue;
-            }
-
-            if (value === null || typeof value !== "object") {
-              result[key] = value;
-              continue;
-            }
-
-            if (!Array.isArray(value)) {
-              const temp = handleObject(key, value);
-              if (temp !== undefined) result[key] = temp;
-              continue;
-            }
-
-            // value is an array
-            if (value.length > 0 && typeof value[0] === "object") {
-              result[key] = value.map((item) => handleObject(key, item)).filter(Boolean);
-            } else {
-              result[key] = value;
-            }
-          }
-          return result;
-        } else {
-          return obj;
-        }
-      }
-
-      function flattenForXLSX(obj: Record<string, any>): Record<string, any> {
-        return Object.fromEntries(
-          Object.entries(obj).map(([col, colValue]) => [col, Array.isArray(colValue) ? colValue.join("|") : colValue])
-        );
-      }
+      const attributes = strapi.contentTypes[contentType]?.attributes || {};
+      const fieldSets = extractSchemaFieldSets(attributes, strapi);
 
       if (entries && entries.length > 0) {
         hasData = true;
 
-        // columnsOverride (from query param) takes priority over stored field config
         let enabledKeys: string[] | undefined;
         if (columnsOverride) {
           enabledKeys = columnsOverride
             .split(",")
-            .map((c) => c.trim())
+            .map((column) => column.trim())
             .filter(Boolean);
         } else {
           const config = fieldConfig[contentType];
-          enabledKeys = config?.exportFields
+          const rawEnabled = config?.exportFields
             ?.filter((exportField) => exportField.enabled)
             .map((exportField) => exportField.key);
+          if (rawEnabled && rawEnabled.length > 0) {
+            enabledKeys = [];
+            for (const key of rawEnabled) {
+              if (fieldSets.repeatableColumns[key]) {
+                enabledKeys.push(...fieldSets.repeatableColumns[key]);
+              } else {
+                enabledKeys.push(key);
+              }
+            }
+          }
         }
 
-        const cleaned = entries.map((entry) => {
-          const flat = flattenForXLSX(cleanAndFlatten(entry));
-          if (!enabledKeys) return flat;
+        const allRows = entries.flatMap((entry) => expandEntry(entry, fieldSets, SYSTEM_KEYS, strapi));
+
+        const finalRows = allRows.map((row) => {
+          if (!enabledKeys) return row;
           const ordered: Record<string, any> = {};
           for (const key of enabledKeys) {
-            if (key in flat) ordered[key] = flat[key];
+            if (key in row) ordered[key] = row[key];
           }
           return ordered;
         });
 
         const worksheet = enabledKeys
-          ? XLSX.utils.json_to_sheet(cleaned, { header: enabledKeys })
-          : XLSX.utils.json_to_sheet(cleaned);
+          ? XLSX.utils.json_to_sheet(finalRows, { header: enabledKeys })
+          : XLSX.utils.json_to_sheet(finalRows);
         XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
       } else {
         const worksheet = XLSX.utils.json_to_sheet([{ message: "No data found" }]);

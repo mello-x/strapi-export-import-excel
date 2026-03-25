@@ -1,28 +1,28 @@
-import * as fs from "node:fs";
+import { readFileSync } from "node:fs";
 import type { Core } from "@strapi/strapi";
 import * as XLSX from "xlsx";
 import {
+  cleanupFile,
+  getComponentFieldNames,
+  getFileInfo,
+  getRelationFieldDefs,
   hasChanges,
   type ImportBatch,
   type ImportResults,
+  mergeComponentData,
   mergeResults,
   parseJsonIfNeeded,
   SHORTCUT_FIELDS,
   setNestedPath,
-  toCamel,
-} from "../utils/import-utils";
+} from "../utils/import";
 
 const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
   async getFileHeaders(file: any): Promise<string[]> {
-    const fileName = file.name || file.originalFilename || "unknown.json";
-    const fileExtension = fileName.split(".").pop().toLowerCase();
-    const filePath = file.path || file.filepath;
-
-    if (!filePath) throw new Error("File path not found");
+    const { fileExtension, filePath } = getFileInfo(file, "unknown.json");
 
     try {
       if (fileExtension === "json") {
-        const content = fs.readFileSync(filePath, "utf8");
+        const content = readFileSync(filePath, "utf8");
         const parsed = JSON.parse(content);
         const first = Array.isArray(parsed) ? parsed[0] : Object.values(parsed)[0]?.[0];
         return Object.keys(first ?? {});
@@ -35,9 +35,7 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
         throw new Error(`Unsupported file type: ${fileExtension}`);
       }
     } finally {
-      if (filePath && fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
-      }
+      cleanupFile(filePath);
     }
   },
 
@@ -49,17 +47,11 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
     bulkLocaleUpload = false,
     publishOnImport = false
   ) {
-    const fileName = file.name || file.originalFilename || "unknown.json";
-    const fileExtension = fileName.split(".").pop().toLowerCase();
-    const filePath = file.path || file.filepath;
-
-    if (!filePath) {
-      throw new Error("File path not found");
-    }
+    const { fileExtension, filePath } = getFileInfo(file, "unknown.json");
 
     try {
       if (fileExtension === "json") {
-        const fileContent = fs.readFileSync(filePath, "utf8");
+        const fileContent = readFileSync(filePath, "utf8");
         const importData: Record<string, any[]> = JSON.parse(fileContent);
         return await this.bulkInsertData(importData, locale, identifierField, publishOnImport);
       } else if (fileExtension === "xlsx" || fileExtension === "xls") {
@@ -73,14 +65,11 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
         throw new Error(`Unsupported file type: ${fileExtension}`);
       }
     } catch (error) {
-      if (filePath && fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
-      }
+      cleanupFile(filePath);
       throw error;
     }
   },
 
-  // Normal mode: sheet name = content type (or use targetContentType override)
   transformExcelData(filePath: string, targetContentType: string | null = null): Record<string, any[]> {
     const workbook = XLSX.readFile(filePath);
     const importData: Record<string, any[]> = {};
@@ -107,7 +96,6 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
     return importData;
   },
 
-  // Bulk locale mode: sheet name = locale code, targetContentType required
   transformExcelDataByLocale(filePath: string, targetContentType: string): ImportBatch[] {
     const workbook = XLSX.readFile(filePath);
     const batches: ImportBatch[] = [];
@@ -132,11 +120,10 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
     return batches;
   },
 
-  // Shared row-unflattening logic used by both transform methods
   unflattenRows(rows: any[], ctName: string): any[] {
-    const attr = strapi.contentTypes[ctName]?.attributes || {};
+    const attributes = strapi.contentTypes[ctName]?.attributes || {};
 
-    const compFieldDefs = Object.entries<any>(attr)
+    const compFieldDefs = Object.entries<any>(attributes)
       .filter(([, def]) => def.type === "component")
       .map(([name, def]) => ({ name, repeatable: !!def.repeatable }));
 
@@ -169,7 +156,11 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
 
         if (value === null) {
           rowData[key] = null;
-        } else if (attr[key] && (attr[key] as any).customField && (attr[key] as any).default === "[]") {
+        } else if (
+          attributes[key] &&
+          (attributes[key] as any).customField &&
+          (attributes[key] as any).default === "[]"
+        ) {
           rowData[key] = String(value).split("|");
         } else {
           rowData[key] = parseJsonIfNeeded(value);
@@ -180,28 +171,47 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
     });
   },
 
-  getRelationFields(contentType: string) {
-    return Object.entries<any>(strapi.contentTypes[contentType]?.attributes ?? {})
-      .filter(([, attr]) => attr.type === "relation")
-      .map(([fieldName, attr]) => ({ field: toCamel(fieldName), target: attr.target, relation: attr.relation }));
-  },
-
-  getComponentFields(contentType: string): string[] {
-    return Object.entries<any>(strapi.contentTypes[contentType]?.attributes ?? {})
-      .filter(([, attr]) => attr.type === "component")
-      .map(([fieldName]) => toCamel(fieldName));
-  },
-
-  async handleRelations(
-    entry: Record<string, any>,
-    contentType: string,
+  async resolveRelationValue(
+    value: any,
+    target: string,
     locale: string | null = null
-  ): Promise<Record<string, any>> {
-    const resolveRelationValue = async (_field: string, value: any, target: string) => {
-      const targetAttr = strapi.contentTypes[target].attributes;
-      const targetIsLocalized = (strapi.contentTypes[target] as any)?.pluginOptions?.i18n?.localized ?? false;
-      const localeParam = targetIsLocalized && locale ? { locale } : {};
+  ): Promise<{ documentId: string } | null> {
+    const targetAttr = strapi.contentTypes[target]?.attributes;
+    if (!targetAttr) return null;
 
+    const targetIsLocalized = (strapi.contentTypes[target] as any)?.pluginOptions?.i18n?.localized ?? false;
+    const localeParam = targetIsLocalized && locale ? { locale } : {};
+
+    let lookupField: string | null = null;
+    let lookupValue: any = null;
+
+    if (typeof value === "string" && value.includes(":")) {
+      const colonIdx = value.indexOf(":");
+      lookupField = value.slice(0, colonIdx);
+      lookupValue = value.slice(colonIdx + 1);
+    } else if (value && typeof value === "object" && !Array.isArray(value)) {
+      const keys = Object.keys(value);
+      if (keys.length > 0) {
+        lookupField = keys[0];
+        lookupValue = value[keys[0]];
+      }
+    }
+
+    if (lookupField && lookupValue != null) {
+      if (!(targetAttr as any)[lookupField]) {
+        throw new Error(`Field "${lookupField}" does not exist on ${target}`);
+      }
+      const existing = await strapi.documents(target as any).findFirst({
+        filters: { [lookupField]: { $eq: lookupValue } } as any,
+        ...localeParam,
+      } as any);
+      if (existing) return { documentId: existing.documentId };
+      throw new Error(
+        `Record with ${lookupField} "${lookupValue}" not found in ${target}${locale ? ` (locale: ${locale})` : ""}`
+      );
+    }
+
+    if (typeof value === "string") {
       for (const shortcut of SHORTCUT_FIELDS) {
         if (!(targetAttr as any)[shortcut]) continue;
         const existing = await strapi.documents(target as any).findFirst({
@@ -210,13 +220,21 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
         } as any);
         if (existing) return { documentId: existing.documentId };
         throw new Error(
-          `Data with ${shortcut} "${value}" not found in ${target}${locale ? ` (locale: ${locale})` : ""}`
+          `Record with ${shortcut} "${value}" not found in ${target}${locale ? ` (locale: ${locale})` : ""}`
         );
       }
-      return null;
-    };
+    }
 
-    const relationFields = this.getRelationFields(contentType);
+    return null;
+  },
+
+  async handleRelations(
+    entry: Record<string, any>,
+    contentType: string,
+    locale: string | null = null
+  ): Promise<Record<string, any>> {
+    const attributes = strapi.contentTypes[contentType]?.attributes ?? {};
+    const relationFields = getRelationFieldDefs(attributes);
     if (relationFields.length === 0) return entry;
 
     const updatedEntry = { ...entry };
@@ -240,7 +258,7 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
       const processed: any[] = [];
       for (const relValue of values) {
         if (!relValue || relValue === "") continue;
-        const resolved = await resolveRelationValue(field, relValue, target);
+        const resolved = await this.resolveRelationValue(relValue, target, locale);
         if (resolved) processed.push(resolved);
       }
       updatedEntry[field] = Array.isArray(value) ? processed : processed[0];
@@ -249,47 +267,72 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
     return updatedEntry;
   },
 
-  handleComponents(
-    data: Record<string, any>,
-    existing: Record<string, any> | null,
-    contentType: string
-  ): Record<string, any> {
-    const compFields = this.getComponentFields(contentType);
+  async resolveComponentRelations(
+    componentData: any,
+    componentUid: string,
+    locale: string | null = null
+  ): Promise<any> {
+    const compSchema = (strapi as any).components?.[componentUid];
+    if (!compSchema?.attributes) return componentData;
 
-    for (const field of compFields) {
-      const newValue = data[field];
-      const oldValue = existing?.[field];
-
-      if (!newValue || !oldValue) continue;
-
-      if (!Array.isArray(newValue)) {
-        if (oldValue?.id) data[field].id = oldValue.id;
-        for (const key of Object.keys(data[field])) {
-          if (Array.isArray(oldValue[key])) {
-            data[field][key] = String(data[field][key]).split("|");
-          }
-        }
-        continue;
+    if (Array.isArray(componentData)) {
+      const resolved = [];
+      for (const item of componentData) {
+        resolved.push(await this.resolveComponentRelations(item, componentUid, locale));
       }
+      return resolved;
+    }
 
-      if (Array.isArray(newValue) && Array.isArray(oldValue)) {
-        data[field] = newValue.map((block: any, i: number) => {
-          const oldBlock = oldValue[i];
-          if (oldBlock?.id) return { id: oldBlock.id, ...block };
-          for (const key of Object.keys(block)) {
-            if (Array.isArray(oldBlock?.[key])) {
-              block[key] = String(block[key]).split("|");
-            }
-          }
-          return block;
-        });
+    if (!componentData || typeof componentData !== "object") return componentData;
+
+    const result = { ...componentData };
+
+    for (const [fieldName, attr] of Object.entries<any>(compSchema.attributes)) {
+      if (!(fieldName in result) || result[fieldName] == null || result[fieldName] === "") continue;
+
+      if (attr.type === "relation") {
+        const target = attr.target;
+        const isArrayRelation = attr.relation === "manyToMany" || attr.relation === "oneToMany";
+        let value = result[fieldName];
+
+        if (typeof value === "string" && isArrayRelation) {
+          value = value.split("|");
+        }
+
+        const values = Array.isArray(value) ? value : [value];
+        const processed: any[] = [];
+        for (const relValue of values) {
+          if (!relValue || relValue === "") continue;
+          const resolved = await this.resolveRelationValue(relValue, target, locale);
+          if (resolved) processed.push(resolved);
+        }
+        result[fieldName] = isArrayRelation || Array.isArray(value) ? processed : (processed[0] ?? null);
+      } else if (attr.type === "component") {
+        result[fieldName] = await this.resolveComponentRelations(result[fieldName], attr.component, locale);
       }
     }
 
-    return data;
+    return result;
   },
 
-  // Normal mode: single locale for all batches
+  async handleComponentRelations(
+    entry: Record<string, any>,
+    contentType: string,
+    locale: string | null = null
+  ): Promise<Record<string, any>> {
+    const attributes = strapi.contentTypes[contentType]?.attributes ?? {};
+    const updatedEntry = { ...entry };
+
+    for (const [fieldName, def] of Object.entries<any>(attributes)) {
+      if (def.type !== "component") continue;
+      if (!updatedEntry[fieldName]) continue;
+
+      updatedEntry[fieldName] = await this.resolveComponentRelations(updatedEntry[fieldName], def.component, locale);
+    }
+
+    return updatedEntry;
+  },
+
   async bulkInsertData(
     importData: Record<string, any[]>,
     locale: string | null = null,
@@ -318,7 +361,6 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
     return results;
   },
 
-  // Bulk locale mode: each batch carries its own locale
   async bulkInsertBatches(batches: ImportBatch[], identifierField: string | null = null, publishOnImport = false) {
     const results: ImportResults = { created: 0, updated: 0, skipped: 0, errors: [] };
 
@@ -346,6 +388,8 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
     publishOnImport = false
   ) {
     const results = { created: 0, updated: 0, skipped: 0, errors: [] as string[] };
+    const attributes = strapi.contentTypes[contentType]?.attributes ?? {};
+    const compFields = getComponentFieldNames(attributes);
 
     const isLocalized = (strapi.contentTypes[contentType] as any)?.pluginOptions?.i18n?.localized ?? false;
     const localeParam = isLocalized && locale ? { locale } : {};
@@ -387,7 +431,8 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
           }
 
           data = await this.handleRelations(data, contentType, locale);
-          data = this.handleComponents(data, existing, contentType);
+          data = await this.handleComponentRelations(data, contentType, locale);
+          data = mergeComponentData(data, existing, compFields);
 
           if (existing) {
             const needsPublish = publishOnImport && existing.publishedAt == null;
@@ -401,8 +446,6 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
               results.updated++;
             }
           } else if (locale && identifierField && identifierField !== "id" && entry[identifierField] != null) {
-            // In bulk locale mode, check if the document exists in any other locale so we can
-            // add this locale to the same document instead of creating a new unlinked one.
             const existingAnyLocale = await strapi.documents(contentType as any).findFirst({
               filters: { [identifierField]: { $eq: entry[identifierField] } } as any,
               populate: "*",
