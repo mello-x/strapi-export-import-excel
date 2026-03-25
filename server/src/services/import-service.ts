@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import type { Core } from "@strapi/strapi";
 import * as XLSX from "xlsx";
 import {
@@ -18,22 +17,13 @@ import {
 
 const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
   async getFileHeaders(file: any): Promise<string[]> {
-    const { fileExtension, filePath } = getFileInfo(file, "unknown.json");
+    const { filePath } = getFileInfo(file, "unknown.xlsx");
 
     try {
-      if (fileExtension === "json") {
-        const content = readFileSync(filePath, "utf8");
-        const parsed = JSON.parse(content);
-        const first = Array.isArray(parsed) ? parsed[0] : Object.values(parsed)[0]?.[0];
-        return Object.keys(first ?? {});
-      } else if (fileExtension === "xlsx" || fileExtension === "xls") {
-        const workbook = XLSX.readFile(filePath);
-        const sheet = workbook.Sheets[workbook.SheetNames[0]];
-        const rows = XLSX.utils.sheet_to_json<any[]>(sheet, { header: 1 });
-        return (rows[0] ?? []).map(String);
-      } else {
-        throw new Error(`Unsupported file type: ${fileExtension}`);
-      }
+      const workbook = XLSX.readFile(filePath);
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json<any[]>(sheet, { header: 1 });
+      return (rows[0] ?? []).map(String);
     } finally {
       cleanupFile(filePath);
     }
@@ -47,23 +37,15 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
     bulkLocaleUpload = false,
     publishOnImport = false
   ) {
-    const { fileExtension, filePath } = getFileInfo(file, "unknown.json");
+    const { filePath } = getFileInfo(file, "unknown.xlsx");
 
     try {
-      if (fileExtension === "json") {
-        const fileContent = readFileSync(filePath, "utf8");
-        const importData: Record<string, any[]> = JSON.parse(fileContent);
-        return await this.bulkInsertData(importData, locale, identifierField, publishOnImport);
-      } else if (fileExtension === "xlsx" || fileExtension === "xls") {
-        if (bulkLocaleUpload && targetContentType) {
-          const batches = this.transformExcelDataByLocale(filePath, targetContentType);
-          return await this.bulkInsertBatches(batches, identifierField, publishOnImport);
-        }
-        const importData = this.transformExcelData(filePath, targetContentType);
-        return await this.bulkInsertData(importData, locale, identifierField, publishOnImport);
-      } else {
-        throw new Error(`Unsupported file type: ${fileExtension}`);
+      if (bulkLocaleUpload && targetContentType) {
+        const batches = this.transformExcelDataByLocale(filePath, targetContentType);
+        return await this.bulkInsertBatches(batches, identifierField, publishOnImport);
       }
+      const importData = this.transformExcelData(filePath, targetContentType);
+      return await this.bulkInsertData(importData, locale, identifierField, publishOnImport);
     } catch (error) {
       cleanupFile(filePath);
       throw error;

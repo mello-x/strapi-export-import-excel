@@ -15,32 +15,18 @@ const exportController = ({ strapi }: { strapi: Core.Strapi }) => {
   return {
     async export(ctx) {
       try {
-        const { format = "excel", contentType, sortOrder, locale, ...filters } = ctx.query;
+        const { contentType, sortOrder, locale, ...filters } = ctx.query;
         const columnsParam = sortOrder as string | undefined;
         const base = ctBase(contentType as string);
 
-        if (format === "excel") {
-          const buffer = await exportService.exportData(
-            "excel",
-            contentType as string,
-            filters,
-            columnsParam,
-            locale as string | undefined
-          );
-          setExcelHeaders(ctx, `${base}-export-${today()}.xlsx`);
-          ctx.body = buffer;
-        } else {
-          const data = await exportService.exportData(
-            "json",
-            contentType as string,
-            filters,
-            undefined,
-            locale as string | undefined
-          );
-          ctx.set("Content-Type", "application/json");
-          ctx.set("Content-Disposition", `attachment; filename="${base}-export-${today()}.json"`);
-          ctx.body = JSON.stringify(data, null, 2);
-        }
+        const buffer = await exportService.exportData(
+          contentType as string,
+          filters,
+          columnsParam,
+          locale as string | undefined
+        );
+        setExcelHeaders(ctx, `${base}-export-${today()}.xlsx`);
+        ctx.body = buffer;
       } catch (error) {
         strapi.log.error("Export error:", error);
         ctx.throw(500, "Export failed");

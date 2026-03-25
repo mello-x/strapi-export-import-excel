@@ -11,6 +11,22 @@ export interface ImportResults {
   errors: string[];
 }
 
+export interface ExportField {
+  key: string;
+  enabled: boolean;
+}
+
+export interface CollectionConfig {
+  enabled?: boolean;
+  exportEnabled?: boolean;
+  importEnabled?: boolean;
+  exportFields?: ExportField[];
+}
+
+export interface PluginSettings {
+  collections: Record<string, CollectionConfig>;
+}
+
 export interface SchemaFieldSets {
   customFields: string[];
   relationFields: string[];

@@ -1,7 +1,7 @@
 {
   "name": "strapi-export-import-excel",
   "version": "1.0.0",
-  "description": "A Strapi v5 plugin for exporting and importing collection data as Excel or JSON, with live preview and per-collection field configuration.",
+  "description": "A Strapi v5 plugin for exporting and importing collection data as Excel, with live preview and per-collection field configuration.",
   "license": "MIT",
   "author": "Assawin Chittanandha <chittanandhaassawin@gmail.com>",
   "homepage": "https://github.com/mello-x/strapi-export-import-excel#readme",
@@ -63,10 +63,9 @@
     "@strapi/sdk-plugin": "6.0.1",
     "@strapi/strapi": "5.40.0",
     "@strapi/typescript-utils": "5.40.0",
-    "@types/react": "19.2.14",
-    "@types/react-dom": "19.2.3",
+    "@types/react": "18.3.23",
+    "@types/react-dom": "18.3.7",
     "husky": "9.1.7",
-    "prettier": "3.8.1",
     "react": "18.3.1",
     "react-dom": "18.3.1",
     "react-intl": "6.8.9",
@@ -75,9 +74,8 @@
     "typescript": "5.9.3"
   },
   "peerDependencies": {
-    "@strapi/design-system": ">=2.0.0-rc.30",
-    "@strapi/icons": ">=2.0.0-rc.30",
-    "@strapi/sdk-plugin": ">=5.0.0",
+    "@strapi/design-system": "^2.0.0",
+    "@strapi/icons": "^2.0.0",
     "@strapi/strapi": "^5.0.0",
     "react": "^18.0.0",
     "react-dom": "^18.0.0",
@@ -89,6 +87,6 @@
     "kind": "plugin",
     "name": "strapi-export-import-excel",
     "displayName": "Export / Import Excel",
-    "description": "A Strapi v5 plugin for exporting and importing collection data as Excel or JSON, with live preview and per-collection field configuration."
+    "description": "A Strapi v5 plugin for exporting and importing collection data as Excel, with live preview and per-collection field configuration."
   }
 }

@@ -1,5 +1,6 @@
 import type { Core } from "@strapi/strapi";
 import * as XLSX from "xlsx";
+import type { CollectionConfig, PluginSettings } from "../types";
 import {
   buildDeepPopulate,
   buildQuery,
@@ -16,7 +17,6 @@ const getPluginStore = (strapi: Core.Strapi) => strapi.store({ type: "plugin", n
 
 const exportService = ({ strapi }: { strapi: Core.Strapi }) => ({
   async exportData(
-    format: string = "json",
     contentType: string | null = null,
     rawFilters: Record<string, any> = {},
     columnsOverride?: string,
@@ -92,19 +92,14 @@ const exportService = ({ strapi }: { strapi: Core.Strapi }) => ({
       }
     }
 
-    if (format === "excel") {
-      const stored = (await getPluginStore(strapi).get({ key: "settings" })) as any;
-      const fieldConfig: Record<string, { exportFields?: { key: string; enabled: boolean }[] }> =
-        stored?.collections ?? {};
-      return this.convertToExcel(exportData.data, fieldConfig, columnsOverride);
-    }
-
-    return exportData;
+    const stored = (await getPluginStore(strapi).get({ key: "settings" })) as PluginSettings | null;
+    const fieldConfig: Record<string, CollectionConfig> = stored?.collections ?? {};
+    return this.convertToExcel(exportData.data, fieldConfig, columnsOverride);
   },
 
   convertToExcel(
     data: Record<string, any[]>,
-    fieldConfig: Record<string, { exportFields?: { key: string; enabled: boolean }[] }> = {},
+    fieldConfig: Record<string, CollectionConfig> = {},
     columnsOverride?: string
   ): Buffer {
     const workbook = XLSX.utils.book_new();

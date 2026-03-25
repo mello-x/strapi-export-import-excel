@@ -1,4 +1,5 @@
 import type { Core } from "@strapi/strapi";
+import type { ExportField, PluginSettings } from "../types";
 import { buildDeepPopulate, buildQuery, expandEntry, extractSchemaFieldSets, validateFilter } from "../utils/export";
 import { SYSTEM_KEYS } from "../utils/import";
 
@@ -30,7 +31,7 @@ const controller = ({ strapi }: { strapi: Core.Strapi }) => ({
       return ctx.throw(400, "`collections` must be an object");
     }
 
-    const existing = (await getPluginStore(strapi).get({ key: STORE_KEY })) as any;
+    const existing = (await getPluginStore(strapi).get({ key: STORE_KEY })) as PluginSettings | null;
     const merged: Record<string, any> = { ...existing?.collections };
     for (const [uid, vals] of Object.entries(collections)) {
       merged[uid] = { ...merged[uid], ...(vals as object) };
@@ -45,7 +46,7 @@ const controller = ({ strapi }: { strapi: Core.Strapi }) => ({
   },
 
   async getCollections(ctx) {
-    const stored = (await getPluginStore(strapi).get({ key: STORE_KEY })) as any;
+    const stored = (await getPluginStore(strapi).get({ key: STORE_KEY })) as PluginSettings | null;
     const colSettings = stored?.collections ?? {};
 
     const collections = Object.entries(strapi.contentTypes)
@@ -109,12 +110,12 @@ const controller = ({ strapi }: { strapi: Core.Strapi }) => ({
 
     let rawEnabledFields: string[] | null = null;
     if (!columns) {
-      const stored = (await getPluginStore(strapi).get({ key: STORE_KEY })) as any;
-      const exportFields = stored?.collections?.[contentType]?.exportFields;
-      if (exportFields && exportFields.length > 0) {
+      const stored = (await getPluginStore(strapi).get({ key: STORE_KEY })) as PluginSettings | null;
+      const exportFields: ExportField[] = stored?.collections?.[contentType]?.exportFields ?? [];
+      if (exportFields.length > 0) {
         rawEnabledFields = exportFields
-          .filter((exportField: any) => exportField.enabled)
-          .map((exportField: any) => exportField.key);
+          .filter((exportField) => exportField.enabled)
+          .map((exportField) => exportField.key);
       }
     }
 
