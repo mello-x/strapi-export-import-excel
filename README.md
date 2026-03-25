@@ -6,7 +6,8 @@ A Strapi v5 plugin for exporting and importing collection data as Excel (`.xlsx`
 
 Plugin preview
 
-<img width="1834" height="401" alt="export-import-homepage" src="https://github.com/user-attachments/assets/5448a4f1-c2bd-4139-bac4-cf88974baa1f" />
+<img width="1845" height="811" alt="image" src="https://github.com/user-attachments/assets/124d1572-e08c-48ed-9f1b-9d4d0c012c54" />
+
 
 ---
 
