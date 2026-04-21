@@ -1,6 +1,6 @@
 {
   "name": "strapi-export-import-excel",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "description": "A Strapi v5 plugin for exporting and importing collection data as Excel, with live preview and per-collection field configuration.",
   "license": "MIT",
   "author": "Assawin Chittanandha <chittanandhaassawin@gmail.com>",
