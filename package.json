@@ -54,9 +54,6 @@
     "lint:fix": "biome check --write .",
     "prepare": "husky"
   },
-  "dependencies": {
-    "xlsx": "0.18.5"
-  },
   "devDependencies": {
     "@biomejs/biome": "2.4.8",
     "@strapi/design-system": "2.0.0-rc.30",
@@ -89,5 +86,8 @@
     "name": "strapi-export-import-excel",
     "displayName": "Export / Import Excel",
     "description": "A Strapi v5 plugin for exporting and importing collection data as Excel, with live preview and per-collection field configuration."
+  },
+  "dependencies": {
+    "exceljs": "4.4.0"
   }
 }

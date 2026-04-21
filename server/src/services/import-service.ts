@@ -1,5 +1,6 @@
 import type { Core } from "@strapi/strapi";
-import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
+import { worksheetGetHeaders, worksheetToJson } from "../utils/excel";
 import {
   cleanupFile,
   getComponentFieldNames,
@@ -20,10 +21,11 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
     const { filePath } = getFileInfo(file, "unknown.xlsx");
 
     try {
-      const workbook = XLSX.readFile(filePath);
-      const sheet = workbook.Sheets[workbook.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json<any[]>(sheet, { header: 1 });
-      return (rows[0] ?? []).map(String);
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.readFile(filePath);
+      const worksheet = workbook.worksheets[0];
+      if (!worksheet) return [];
+      return worksheetGetHeaders(worksheet);
     } finally {
       cleanupFile(filePath);
     }
@@ -41,10 +43,10 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
 
     try {
       if (bulkLocaleUpload && targetContentType) {
-        const batches = this.transformExcelDataByLocale(filePath, targetContentType);
+        const batches = await this.transformExcelDataByLocale(filePath, targetContentType);
         return await this.bulkInsertBatches(batches, identifierField, publishOnImport);
       }
-      const importData = this.transformExcelData(filePath, targetContentType);
+      const importData = await this.transformExcelData(filePath, targetContentType);
       return await this.bulkInsertData(importData, locale, identifierField, publishOnImport);
     } catch (error) {
       cleanupFile(filePath);
@@ -52,34 +54,36 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
     }
   },
 
-  transformExcelData(filePath: string, targetContentType: string | null = null): Record<string, any[]> {
-    const workbook = XLSX.readFile(filePath);
+  async transformExcelData(filePath: string, targetContentType: string | null = null): Promise<Record<string, any[]>> {
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.readFile(filePath);
     const importData: Record<string, any[]> = {};
 
-    workbook.SheetNames.forEach((sheetName) => {
-      const worksheet = workbook.Sheets[sheetName];
-      const rows = XLSX.utils.sheet_to_json(worksheet);
-      if (!rows.length) return;
+    for (const worksheet of workbook.worksheets) {
+      const sheetName = worksheet.name;
+      const rows = worksheetToJson(worksheet);
+      if (!rows.length) continue;
 
       const ctName = targetContentType || `api::${sheetName}.${sheetName}`;
 
       if (!ctName.startsWith("api::")) {
         strapi.log.error(`Unknown content-type: ${ctName}`);
-        return;
+        continue;
       }
       if (!strapi.contentTypes[ctName]) {
         strapi.log.error(`Content type ${ctName} not found`);
-        return;
+        continue;
       }
 
       importData[ctName] = this.unflattenRows(rows, ctName);
-    });
+    }
 
     return importData;
   },
 
-  transformExcelDataByLocale(filePath: string, targetContentType: string): ImportBatch[] {
-    const workbook = XLSX.readFile(filePath);
+  async transformExcelDataByLocale(filePath: string, targetContentType: string): Promise<ImportBatch[]> {
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.readFile(filePath);
     const batches: ImportBatch[] = [];
 
     if (!strapi.contentTypes[targetContentType]) {
@@ -87,17 +91,16 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
       return batches;
     }
 
-    workbook.SheetNames.forEach((sheetName) => {
-      const worksheet = workbook.Sheets[sheetName];
-      const rows = XLSX.utils.sheet_to_json(worksheet);
-      if (!rows.length) return;
+    for (const worksheet of workbook.worksheets) {
+      const rows = worksheetToJson(worksheet);
+      if (!rows.length) continue;
 
       batches.push({
         contentType: targetContentType,
-        locale: sheetName,
+        locale: worksheet.name,
         entries: this.unflattenRows(rows, targetContentType),
       });
-    });
+    }
 
     return batches;
   },

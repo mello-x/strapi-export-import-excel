@@ -1,6 +1,7 @@
 import type { Core } from "@strapi/strapi";
-import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
 import type { CollectionConfig, PluginSettings } from "../types";
+import { addJsonToWorksheet } from "../utils/excel";
 import {
   buildDeepPopulate,
   buildQuery,
@@ -94,15 +95,15 @@ const exportService = ({ strapi }: { strapi: Core.Strapi }) => ({
 
     const stored = (await getPluginStore(strapi).get({ key: "settings" })) as PluginSettings | null;
     const fieldConfig: Record<string, CollectionConfig> = stored?.collections ?? {};
-    return this.convertToExcel(exportData.data, fieldConfig, columnsOverride);
+    return await this.convertToExcel(exportData.data, fieldConfig, columnsOverride);
   },
 
-  convertToExcel(
+  async convertToExcel(
     data: Record<string, any[]>,
     fieldConfig: Record<string, CollectionConfig> = {},
     columnsOverride?: string
-  ): Buffer {
-    const workbook = XLSX.utils.book_new();
+  ): Promise<Buffer> {
+    const workbook = new ExcelJS.Workbook();
     let hasData = false;
 
     for (const [contentType, entries] of Object.entries(data)) {
@@ -152,23 +153,21 @@ const exportService = ({ strapi }: { strapi: Core.Strapi }) => ({
           return ordered;
         });
 
-        const worksheet = enabledKeys
-          ? XLSX.utils.json_to_sheet(finalRows, { header: enabledKeys })
-          : XLSX.utils.json_to_sheet(finalRows);
-        XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
+        const worksheet = workbook.addWorksheet(sheetName);
+        addJsonToWorksheet(worksheet, finalRows, enabledKeys);
       } else {
-        const worksheet = XLSX.utils.json_to_sheet([{ message: "No data found" }]);
-        XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
+        const worksheet = workbook.addWorksheet(sheetName);
+        addJsonToWorksheet(worksheet, [{ message: "No data found" }]);
         hasData = true;
       }
     }
 
     if (!hasData) {
-      const worksheet = XLSX.utils.json_to_sheet([{ message: "No data to export" }]);
-      XLSX.utils.book_append_sheet(workbook, worksheet, "NoData");
+      const worksheet = workbook.addWorksheet("NoData");
+      addJsonToWorksheet(worksheet, [{ message: "No data to export" }]);
     }
 
-    return XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
+    return Buffer.from(await workbook.xlsx.writeBuffer());
   },
 
   async exportSingleEntry(contentType: string, entryId: string): Promise<Buffer> {
@@ -182,7 +181,7 @@ const exportService = ({ strapi }: { strapi: Core.Strapi }) => ({
       throw new Error("Entry not found");
     }
 
-    return this.convertToExcel({ [contentType]: [entry] });
+    return await this.convertToExcel({ [contentType]: [entry] });
   },
 });
 

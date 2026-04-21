@@ -1,5 +1,6 @@
 import type { Core } from "@strapi/strapi";
-import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
+import { worksheetToJson } from "../utils/excel";
 import { cleanupFile, getFileInfo, type ImportResults, mergeResults } from "../utils/import";
 
 const nestedImportService = ({ strapi }: { strapi: Core.Strapi }) => ({
@@ -30,12 +31,12 @@ const nestedImportService = ({ strapi }: { strapi: Core.Strapi }) => ({
     const results: ImportResults = { created: 0, updated: 0, skipped: 0, errors: [] };
 
     try {
-      const workbook = XLSX.readFile(filePath);
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.readFile(filePath);
 
       if (bulkLocaleUpload) {
-        for (const sheetName of workbook.SheetNames) {
-          const sheet = workbook.Sheets[sheetName];
-          const rows: Record<string, any>[] = XLSX.utils.sheet_to_json(sheet);
+        for (const worksheet of workbook.worksheets) {
+          const rows: Record<string, any>[] = worksheetToJson(worksheet);
           if (!rows.length) continue;
 
           const sheetResult = await this.importComponentSheet(
@@ -44,14 +45,14 @@ const nestedImportService = ({ strapi }: { strapi: Core.Strapi }) => ({
             componentField,
             componentUid,
             identifierField,
-            sheetName,
+            worksheet.name,
             publishOnImport
           );
           mergeResults(results, sheetResult);
         }
       } else {
-        const sheet = workbook.Sheets[workbook.SheetNames[0]];
-        const rows: Record<string, any>[] = XLSX.utils.sheet_to_json(sheet);
+        const worksheet = workbook.worksheets[0];
+        const rows: Record<string, any>[] = worksheet ? worksheetToJson(worksheet) : [];
 
         if (!rows.length) {
           results.errors.push("No data found in file");
@@ -124,22 +125,18 @@ const nestedImportService = ({ strapi }: { strapi: Core.Strapi }) => ({
             continue;
           }
 
-          let resolvedComponents = [];
+          const resolvedComponents = [];
           for (const componentRow of componentRows) {
             const resolved = await importService.resolveComponentRelations(componentRow, componentUid, locale);
             resolvedComponents.push(resolved);
           }
 
-          const existingComponents = parent[componentField] || [];
-          resolvedComponents = resolvedComponents.map((comp: any, i: number) => {
-            const existingComp = existingComponents[i];
-            if (existingComp?.id) return { id: existingComp.id, ...comp };
-            return comp;
-          });
+          const existingComponents = (parent[componentField] || []).map((comp: any) => ({ id: comp.id }));
+          const mergedComponents = [...existingComponents, ...resolvedComponents];
 
           await strapi.documents(contentType as any).update({
             documentId: parent.documentId,
-            data: { [componentField]: resolvedComponents },
+            data: { [componentField]: mergedComponents },
             ...statusParam,
             ...localeParam,
           } as any);
