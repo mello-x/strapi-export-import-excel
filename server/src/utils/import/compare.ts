@@ -6,6 +6,7 @@ export function mergeResults(target: ImportResults, source: ImportResults): void
   target.updated += source.updated;
   target.skipped += source.skipped;
   target.errors = target.errors.concat(source.errors);
+  target.warnings = target.warnings.concat(source.warnings);
 }
 
 export function hasChanges(existing: Record<string, any>, incoming: Record<string, any>): boolean {

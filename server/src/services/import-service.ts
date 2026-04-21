@@ -1,6 +1,5 @@
 import type { Core } from "@strapi/strapi";
-import ExcelJS from "exceljs";
-import { worksheetGetHeaders, worksheetToJson } from "../utils/excel";
+import { getHeaders, readWorkbook, sheetToJson } from "../utils/excel";
 import {
   cleanupFile,
   getComponentFieldNames,
@@ -19,13 +18,8 @@ import {
 const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
   async getFileHeaders(file: any): Promise<string[]> {
     const { filePath } = getFileInfo(file, "unknown.xlsx");
-
     try {
-      const workbook = new ExcelJS.Workbook();
-      await workbook.xlsx.readFile(filePath);
-      const worksheet = workbook.worksheets[0];
-      if (!worksheet) return [];
-      return worksheetGetHeaders(worksheet);
+      return getHeaders(filePath);
     } finally {
       cleanupFile(filePath);
     }
@@ -43,25 +37,22 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
 
     try {
       if (bulkLocaleUpload && targetContentType) {
-        const batches = await this.transformExcelDataByLocale(filePath, targetContentType);
+        const batches = this.transformExcelDataByLocale(filePath, targetContentType);
         return await this.bulkInsertBatches(batches, identifierField, publishOnImport);
       }
-      const importData = await this.transformExcelData(filePath, targetContentType);
+      const importData = this.transformExcelData(filePath, targetContentType);
       return await this.bulkInsertData(importData, locale, identifierField, publishOnImport);
-    } catch (error) {
+    } finally {
       cleanupFile(filePath);
-      throw error;
     }
   },
 
-  async transformExcelData(filePath: string, targetContentType: string | null = null): Promise<Record<string, any[]>> {
-    const workbook = new ExcelJS.Workbook();
-    await workbook.xlsx.readFile(filePath);
+  transformExcelData(filePath: string, targetContentType: string | null = null): Record<string, any[]> {
+    const workbook = readWorkbook(filePath);
     const importData: Record<string, any[]> = {};
 
-    for (const worksheet of workbook.worksheets) {
-      const sheetName = worksheet.name;
-      const rows = worksheetToJson(worksheet);
+    for (const sheetName of workbook.SheetNames) {
+      const rows = sheetToJson(workbook.Sheets[sheetName]);
       if (!rows.length) continue;
 
       const ctName = targetContentType || `api::${sheetName}.${sheetName}`;
@@ -81,9 +72,8 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
     return importData;
   },
 
-  async transformExcelDataByLocale(filePath: string, targetContentType: string): Promise<ImportBatch[]> {
-    const workbook = new ExcelJS.Workbook();
-    await workbook.xlsx.readFile(filePath);
+  transformExcelDataByLocale(filePath: string, targetContentType: string): ImportBatch[] {
+    const workbook = readWorkbook(filePath);
     const batches: ImportBatch[] = [];
 
     if (!strapi.contentTypes[targetContentType]) {
@@ -91,13 +81,13 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
       return batches;
     }
 
-    for (const worksheet of workbook.worksheets) {
-      const rows = worksheetToJson(worksheet);
+    for (const sheetName of workbook.SheetNames) {
+      const rows = sheetToJson(workbook.Sheets[sheetName]);
       if (!rows.length) continue;
 
       batches.push({
         contentType: targetContentType,
-        locale: worksheet.name,
+        locale: sheetName,
         entries: this.unflattenRows(rows, targetContentType),
       });
     }
@@ -112,48 +102,50 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
       .filter(([, def]) => def.type === "component")
       .map(([name, def]) => ({ name, repeatable: !!def.repeatable }));
 
-    return rows.map((row) => {
-      const rowData: Record<string, any> = {};
+    return rows
+      .map((row) => {
+        const rowData: Record<string, any> = {};
 
-      for (const [key, rawValue] of Object.entries(row)) {
-        const value = rawValue === "" || rawValue === undefined ? null : rawValue;
+        for (const [key, rawValue] of Object.entries(row)) {
+          const value = rawValue === "" || rawValue === undefined ? null : rawValue;
 
-        const compDef = compFieldDefs.find((c) => key === c.name || key.startsWith(`${c.name}_`));
+          const compDef = compFieldDefs.find((c) => key === c.name || key.startsWith(`${c.name}_`));
 
-        if (compDef) {
-          if (key === compDef.name) {
-            if (typeof value === "string" && (value.startsWith("[") || value.startsWith("{"))) {
-              try {
-                rowData[compDef.name] = JSON.parse(value);
-              } catch {
-                rowData[compDef.name] = null;
+          if (compDef) {
+            if (key === compDef.name) {
+              if (typeof value === "string" && (value.startsWith("[") || value.startsWith("{"))) {
+                try {
+                  rowData[compDef.name] = JSON.parse(value);
+                } catch {
+                  rowData[compDef.name] = null;
+                }
+              } else {
+                rowData[compDef.name] = value;
               }
             } else {
-              rowData[compDef.name] = value;
+              if (!rowData[compDef.name]) rowData[compDef.name] = {};
+              const subPath = key.slice(compDef.name.length + 1);
+              setNestedPath(rowData[compDef.name], subPath, value);
             }
-          } else {
-            if (!rowData[compDef.name]) rowData[compDef.name] = {};
-            const subPath = key.slice(compDef.name.length + 1);
-            setNestedPath(rowData[compDef.name], subPath, value);
+            continue;
           }
-          continue;
+
+          if (value === null) {
+            rowData[key] = null;
+          } else if (
+            attributes[key] &&
+            (attributes[key] as any).customField &&
+            (attributes[key] as any).default === "[]"
+          ) {
+            rowData[key] = String(value).split("|");
+          } else {
+            rowData[key] = parseJsonIfNeeded(value);
+          }
         }
 
-        if (value === null) {
-          rowData[key] = null;
-        } else if (
-          attributes[key] &&
-          (attributes[key] as any).customField &&
-          (attributes[key] as any).default === "[]"
-        ) {
-          rowData[key] = String(value).split("|");
-        } else {
-          rowData[key] = parseJsonIfNeeded(value);
-        }
-      }
-
-      return rowData;
-    });
+        return rowData;
+      })
+      .filter((row) => Object.values(row).some((v) => v !== null && v !== undefined && v !== ""));
   },
 
   async resolveRelationValue(
@@ -324,7 +316,7 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
     identifierField: string | null = null,
     publishOnImport = false
   ) {
-    const results: ImportResults = { created: 0, updated: 0, skipped: 0, errors: [] };
+    const results: ImportResults = { created: 0, updated: 0, skipped: 0, errors: [], warnings: [] };
 
     for (const [contentType, entries] of Object.entries(importData)) {
       if (!strapi.contentTypes[contentType]) {
@@ -347,7 +339,7 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
   },
 
   async bulkInsertBatches(batches: ImportBatch[], identifierField: string | null = null, publishOnImport = false) {
-    const results: ImportResults = { created: 0, updated: 0, skipped: 0, errors: [] };
+    const results: ImportResults = { created: 0, updated: 0, skipped: 0, errors: [], warnings: [] };
 
     for (const { contentType, locale, entries } of batches) {
       if (!strapi.contentTypes[contentType]) {
@@ -372,7 +364,7 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
     identifierField: string | null = null,
     publishOnImport = false
   ) {
-    const results = { created: 0, updated: 0, skipped: 0, errors: [] as string[] };
+    const results = { created: 0, updated: 0, skipped: 0, errors: [] as string[], warnings: [] as string[] };
     const attributes = strapi.contentTypes[contentType]?.attributes ?? {};
     const compFields = getComponentFieldNames(attributes);
 
@@ -380,85 +372,121 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
     const localeParam = isLocalized && locale ? { locale } : {};
     const statusParam = publishOnImport ? { status: "published" as const } : {};
 
-    for (let i = 0; i < entries.length; i++) {
-      const entry = entries[i];
-
-      try {
-        if (identifierField && identifierField !== "id") {
-          const identifierValue = entry[identifierField];
-          if (identifierValue == null || (typeof identifierValue === "string" && !identifierValue.trim())) {
-            results.skipped++;
-            continue;
-          }
+    // Deduplicate by identifier (keep last occurrence) to prevent race conditions in concurrent batches
+    // Track original indices so error messages reference correct Excel row numbers
+    let indexed: { entry: any; originalIndex: number }[] = entries.map((entry, i) => ({ entry, originalIndex: i }));
+    if (identifierField && identifierField !== "id") {
+      const seen = new Map<string, number>();
+      const duplicateKeys: string[] = [];
+      for (let i = 0; i < entries.length; i++) {
+        const key = String(entries[i][identifierField] ?? "");
+        if (key) {
+          if (seen.has(key)) duplicateKeys.push(key);
+          seen.set(key, i);
         }
-
-        let existing: any = null;
-        const { id, ...rawData } = entry;
-
-        if (identifierField && identifierField !== "id" && entry[identifierField] != null) {
-          existing = await strapi.documents(contentType as any).findFirst({
-            filters: { [identifierField]: { $eq: entry[identifierField] } } as any,
-            populate: "*",
-            ...localeParam,
-          } as any);
-        } else if (id && id !== "null" && id !== "undefined") {
-          existing = await strapi.documents(contentType as any).findFirst({
-            filters: { id } as any,
-            populate: "*",
-            ...localeParam,
-          } as any);
-        }
-
-        let data = await this.handleRelations(rawData, contentType, locale);
-        data = await this.handleComponentRelations(data, contentType, locale);
-        data = mergeComponentData(data, existing, compFields);
-
-        if (existing) {
-          const needsPublish = publishOnImport && existing.publishedAt == null;
-          if (hasChanges(existing, data) || needsPublish) {
-            await strapi.documents(contentType as any).update({
-              documentId: existing.documentId,
-              data,
-              ...statusParam,
-              ...localeParam,
-            } as any);
-            results.updated++;
-          }
-        } else if (locale && identifierField && identifierField !== "id" && entry[identifierField] != null) {
-          const existingAnyLocale = await strapi.documents(contentType as any).findFirst({
-            filters: { [identifierField]: { $eq: entry[identifierField] } } as any,
-            populate: "*",
-          } as any);
-          if (existingAnyLocale) {
-            await strapi.documents(contentType as any).update({
-              documentId: existingAnyLocale.documentId,
-              data,
-              ...statusParam,
-              ...localeParam,
-            } as any);
-            results.updated++;
-          } else {
-            await strapi.documents(contentType as any).create({
-              data,
-              ...statusParam,
-              ...localeParam,
-            } as any);
-            results.created++;
-          }
-        } else {
-          await strapi.documents(contentType as any).create({
-            data,
-            ...statusParam,
-            ...localeParam,
-          } as any);
-          results.created++;
-        }
-      } catch (err: any) {
-        const errorMsg = err?.message || err?.details?.errors?.[0]?.message || JSON.stringify(err);
-        strapi.log.error(`Row ${i + 2} failed: ${errorMsg}`, err?.details || err);
-        results.errors.push(`Row ${i + 2}: ${errorMsg}`);
-        results.skipped++;
       }
+      const keepIndices = new Set(seen.values());
+      indexed = indexed.filter((_, i) => keepIndices.has(i));
+      const dupCount = entries.length - indexed.length;
+      if (dupCount > 0) {
+        const uniqueDups = [...new Set(duplicateKeys)];
+        const preview = uniqueDups.slice(0, 5).join(", ");
+        const suffix = uniqueDups.length > 5 ? `, and ${uniqueDups.length - 5} more` : "";
+        const warnMsg = `Skipped ${dupCount} duplicate row(s) by ${identifierField} (keeping last occurrence): ${preview}${suffix}`;
+        strapi.log.warn(warnMsg);
+        results.warnings.push(warnMsg);
+        results.skipped += dupCount;
+      }
+    }
+
+    const BATCH_SIZE = 5;
+    for (let batchStart = 0; batchStart < indexed.length; batchStart += BATCH_SIZE) {
+      const batch = indexed.slice(batchStart, batchStart + BATCH_SIZE);
+
+      const batchResults = await Promise.all(
+        batch.map(
+          async ({ entry, originalIndex }): Promise<{ status: "created" | "updated" | "skipped"; error?: string }> => {
+            const rowNum = originalIndex + 2; // +2: 1-based + header row
+            try {
+              if (identifierField && identifierField !== "id") {
+                const identifierValue = entry[identifierField];
+                if (identifierValue == null || (typeof identifierValue === "string" && !identifierValue.trim())) {
+                  return { status: "skipped" };
+                }
+              }
+
+              let existing: any = null;
+              const { id, ...rawData } = entry;
+
+              if (identifierField && identifierField !== "id" && entry[identifierField] != null) {
+                existing = await strapi.documents(contentType as any).findFirst({
+                  filters: { [identifierField]: { $eq: entry[identifierField] } } as any,
+                  populate: "*",
+                  ...localeParam,
+                } as any);
+              } else if (id && id !== "null" && id !== "undefined") {
+                existing = await strapi.documents(contentType as any).findFirst({
+                  filters: { id } as any,
+                  populate: "*",
+                  ...localeParam,
+                } as any);
+              }
+
+              let data = await this.handleRelations(rawData, contentType, locale);
+              data = await this.handleComponentRelations(data, contentType, locale);
+              data = mergeComponentData(data, existing, compFields);
+
+              if (existing) {
+                const needsPublish = publishOnImport && existing.publishedAt == null;
+                if (hasChanges(existing, data) || needsPublish) {
+                  await strapi.documents(contentType as any).update({
+                    documentId: existing.documentId,
+                    data,
+                    ...statusParam,
+                    ...localeParam,
+                  } as any);
+                  return { status: "updated" };
+                }
+                return { status: "skipped" };
+              } else if (locale && identifierField && identifierField !== "id" && entry[identifierField] != null) {
+                const existingAnyLocale = await strapi.documents(contentType as any).findFirst({
+                  filters: { [identifierField]: { $eq: entry[identifierField] } } as any,
+                  populate: "*",
+                } as any);
+                if (existingAnyLocale) {
+                  await strapi.documents(contentType as any).update({
+                    documentId: existingAnyLocale.documentId,
+                    data,
+                    ...statusParam,
+                    ...localeParam,
+                  } as any);
+                  return { status: "updated" };
+                }
+              }
+
+              await strapi.documents(contentType as any).create({
+                data,
+                ...statusParam,
+                ...localeParam,
+              } as any);
+              return { status: "created" };
+            } catch (err: any) {
+              const errorMsg = err?.message || err?.details?.errors?.[0]?.message || JSON.stringify(err);
+              strapi.log.error(`Row ${rowNum} failed: ${errorMsg}`, err?.details || err);
+              return { status: "skipped", error: `Row ${rowNum}: ${errorMsg}` };
+            }
+          }
+        )
+      );
+
+      for (const r of batchResults) {
+        results[r.status]++;
+        if (r.error) results.errors.push(r.error);
+      }
+
+      strapi.log.info(
+        `Import progress: ${Math.min(batchStart + BATCH_SIZE, indexed.length)}/${indexed.length} rows processed`
+      );
     }
 
     return results;

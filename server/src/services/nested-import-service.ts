@@ -1,6 +1,5 @@
 import type { Core } from "@strapi/strapi";
-import ExcelJS from "exceljs";
-import { worksheetToJson } from "../utils/excel";
+import { readWorkbook, sheetToJson } from "../utils/excel";
 import { cleanupFile, getFileInfo, type ImportResults, mergeResults } from "../utils/import";
 
 const nestedImportService = ({ strapi }: { strapi: Core.Strapi }) => ({
@@ -28,15 +27,14 @@ const nestedImportService = ({ strapi }: { strapi: Core.Strapi }) => ({
     }
 
     const componentUid = componentDef.component;
-    const results: ImportResults = { created: 0, updated: 0, skipped: 0, errors: [] };
+    const results: ImportResults = { created: 0, updated: 0, skipped: 0, errors: [], warnings: [] };
 
     try {
-      const workbook = new ExcelJS.Workbook();
-      await workbook.xlsx.readFile(filePath);
+      const workbook = readWorkbook(filePath);
 
       if (bulkLocaleUpload) {
-        for (const worksheet of workbook.worksheets) {
-          const rows: Record<string, any>[] = worksheetToJson(worksheet);
+        for (const sheetName of workbook.SheetNames) {
+          const rows = sheetToJson(workbook.Sheets[sheetName]);
           if (!rows.length) continue;
 
           const sheetResult = await this.importComponentSheet(
@@ -45,14 +43,14 @@ const nestedImportService = ({ strapi }: { strapi: Core.Strapi }) => ({
             componentField,
             componentUid,
             identifierField,
-            worksheet.name,
+            sheetName,
             publishOnImport
           );
           mergeResults(results, sheetResult);
         }
       } else {
-        const worksheet = workbook.worksheets[0];
-        const rows: Record<string, any>[] = worksheet ? worksheetToJson(worksheet) : [];
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const rows = sheet ? sheetToJson(sheet) : [];
 
         if (!rows.length) {
           results.errors.push("No data found in file");
@@ -86,7 +84,7 @@ const nestedImportService = ({ strapi }: { strapi: Core.Strapi }) => ({
     locale: string | null,
     publishOnImport: boolean
   ) {
-    const results: ImportResults = { created: 0, updated: 0, skipped: 0, errors: [] };
+    const results: ImportResults = { created: 0, updated: 0, skipped: 0, errors: [], warnings: [] };
 
     const grouped: Record<string, Record<string, any>[]> = {};
     for (const row of rows) {
