@@ -2,6 +2,7 @@ import { Box, Button, Flex, SingleSelect, SingleSelectOption, Toggle, Typography
 import { Upload } from "@strapi/icons";
 import { useNotification } from "@strapi/strapi/admin";
 import { useEffect, useRef, useState } from "react";
+import { ImportResults } from "./ImportResults";
 import type { Locale } from "./LocaleSelect";
 import { LocaleSelect } from "./LocaleSelect";
 
@@ -35,6 +36,11 @@ const NestedImportPanel = ({ collections, locales, defaultLocale }: NestedImport
   const [isImporting, setIsImporting] = useState(false);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [bulkLocaleUpload, setBulkLocaleUpload] = useState(false);
+  const [importResults, setImportResults] = useState<{
+    summary: { created: number; updated: number; skipped: number };
+    errors: string[];
+    warnings: string[];
+  } | null>(null);
   const { toggleNotification } = useNotification();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -67,6 +73,7 @@ const NestedImportPanel = ({ collections, locales, defaultLocale }: NestedImport
     if (!pendingFile || !collection || !componentField || !identifierField) return;
 
     setIsImporting(true);
+    setImportResults(null);
     const formData = new FormData();
     formData.append("file", pendingFile);
     formData.append("contentType", collection);
@@ -87,14 +94,22 @@ const NestedImportPanel = ({ collections, locales, defaultLocale }: NestedImport
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Component import failed");
 
+      const created = result.summary?.created ?? result.result?.created ?? 0;
       const updated = result.summary?.updated ?? 0;
       const skipped = result.summary?.skipped ?? 0;
-      const errors = result.result?.errors?.length ?? 0;
+      const errorList: string[] = result.result?.errors ?? [];
+      const warningList: string[] = result.result?.warnings ?? [];
 
-      if (errors > 0) {
+      setImportResults({
+        summary: { created, updated, skipped },
+        errors: errorList,
+        warnings: warningList,
+      });
+
+      if (errorList.length > 0) {
         toggleNotification({
           type: "warning",
-          message: `Component import completed with ${errors} error(s). ${updated} updated, ${skipped} skipped.`,
+          message: `Component import completed with ${errorList.length} error(s). ${updated} updated, ${skipped} skipped.`,
         });
       } else if (updated > 0) {
         toggleNotification({
@@ -260,6 +275,15 @@ const NestedImportPanel = ({ collections, locales, defaultLocale }: NestedImport
             </Button>
           )}
         </Box>
+      )}
+
+      {importResults && (
+        <ImportResults
+          summary={importResults.summary}
+          errors={importResults.errors}
+          warnings={importResults.warnings}
+          onDismiss={() => setImportResults(null)}
+        />
       )}
     </Box>
   );

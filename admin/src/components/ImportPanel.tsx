@@ -2,6 +2,7 @@ import { Box, Button, Flex, SingleSelect, SingleSelectOption, Toggle, Typography
 import { Upload } from "@strapi/icons";
 import { useNotification } from "@strapi/strapi/admin";
 import { useRef, useState } from "react";
+import { ImportResults } from "./ImportResults";
 import type { Locale } from "./LocaleSelect";
 import { LocaleSelect } from "./LocaleSelect";
 
@@ -40,6 +41,11 @@ const ImportPanel = ({
   const [isLoadingHeaders, setIsLoadingHeaders] = useState(false);
   const [bulkLocaleUpload, setBulkLocaleUpload] = useState(false);
   const [publishOnImport, setPublishOnImport] = useState(false);
+  const [importResults, setImportResults] = useState<{
+    summary: { created: number; updated: number; skipped: number };
+    errors: string[];
+    warnings: string[];
+  } | null>(null);
   const { toggleNotification } = useNotification();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -49,6 +55,7 @@ const ImportPanel = ({
     setExcelHeaders([]);
     setIdentifierField("");
     setPendingFile(null);
+    setImportResults(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
@@ -114,13 +121,21 @@ const ImportPanel = ({
 
       const created = result.summary?.created ?? result.result?.created ?? 0;
       const updated = result.summary?.updated ?? result.result?.updated ?? 0;
-      const errors = result.result?.errors?.length ?? 0;
+      const skipped = result.summary?.skipped ?? result.result?.skipped ?? 0;
+      const errorList: string[] = result.result?.errors ?? [];
+      const warningList: string[] = result.result?.warnings ?? [];
       const total = created + updated;
 
-      if (errors > 0) {
+      setImportResults({
+        summary: { created, updated, skipped },
+        errors: errorList,
+        warnings: warningList,
+      });
+
+      if (errorList.length > 0) {
         toggleNotification({
           type: "warning",
-          message: `Import completed with ${errors} error(s). Processed ${total} entries (${created} created, ${updated} updated)`,
+          message: `Import completed with ${errorList.length} error(s). Processed ${total} entries (${created} created, ${updated} updated)`,
         });
       } else if (total > 0) {
         toggleNotification({
@@ -134,7 +149,10 @@ const ImportPanel = ({
       toggleNotification({ type: "danger", message: `Import failed: ${error.message}` });
     } finally {
       setIsImporting(false);
-      resetImportState();
+      setExcelHeaders([]);
+      setIdentifierField("");
+      setPendingFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
 
@@ -276,6 +294,15 @@ const ImportPanel = ({
             Upload File
           </Button>
         </Box>
+      )}
+
+      {importResults && (
+        <ImportResults
+          summary={importResults.summary}
+          errors={importResults.errors}
+          warnings={importResults.warnings}
+          onDismiss={() => setImportResults(null)}
+        />
       )}
     </Box>
   );

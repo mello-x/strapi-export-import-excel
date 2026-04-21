@@ -21,6 +21,7 @@ function buildImportResponse(result: any): { message: string; result: any; summa
       updated: result.updated ?? 0,
       skipped: result.skipped ?? 0,
       errors: result.errors?.length ?? 0,
+      warnings: result.warnings?.length ?? 0,
     },
   };
 }
@@ -43,6 +44,7 @@ const importController = ({ strapi }: { strapi: Core.Strapi }) => ({
   },
 
   async import(ctx) {
+    ctx.req.setTimeout(30 * 60 * 1000);
     try {
       const file = extractFile(ctx);
       const { body } = ctx.request as any;
@@ -64,6 +66,7 @@ const importController = ({ strapi }: { strapi: Core.Strapi }) => ({
   },
 
   async importComponent(ctx) {
+    ctx.req.setTimeout(30 * 60 * 1000);
     try {
       const file = extractFile(ctx);
       const { body } = ctx.request as any;

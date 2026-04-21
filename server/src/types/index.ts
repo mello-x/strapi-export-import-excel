@@ -9,6 +9,7 @@ export interface ImportResults {
   updated: number;
   skipped: number;
   errors: string[];
+  warnings: string[];
 }
 
 export interface ExportField {
