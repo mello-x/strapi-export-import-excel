@@ -13,6 +13,7 @@ import {
   parseJsonIfNeeded,
   SHORTCUT_FIELDS,
   setNestedPath,
+  sheetToJson,
 } from "../utils/import";
 
 const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
@@ -23,7 +24,7 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
       const workbook = XLSX.readFile(filePath);
       const sheet = workbook.Sheets[workbook.SheetNames[0]];
       const rows = XLSX.utils.sheet_to_json<any[]>(sheet, { header: 1 });
-      return (rows[0] ?? []).map(String);
+      return (rows[0] ?? []).map((h: any) => String(h).trim());
     } finally {
       cleanupFile(filePath);
     }
@@ -58,7 +59,7 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
 
     workbook.SheetNames.forEach((sheetName) => {
       const worksheet = workbook.Sheets[sheetName];
-      const rows = XLSX.utils.sheet_to_json(worksheet);
+      const rows = sheetToJson(worksheet);
       if (!rows.length) return;
 
       const ctName = targetContentType || `api::${sheetName}.${sheetName}`;
@@ -89,7 +90,7 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
 
     workbook.SheetNames.forEach((sheetName) => {
       const worksheet = workbook.Sheets[sheetName];
-      const rows = XLSX.utils.sheet_to_json(worksheet);
+      const rows = sheetToJson(worksheet);
       if (!rows.length) return;
 
       batches.push({

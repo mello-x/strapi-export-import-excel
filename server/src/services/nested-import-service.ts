@@ -1,6 +1,6 @@
 import type { Core } from "@strapi/strapi";
 import * as XLSX from "xlsx";
-import { cleanupFile, getFileInfo, type ImportResults, mergeResults } from "../utils/import";
+import { cleanupFile, getFileInfo, type ImportResults, mergeResults, sheetToJson } from "../utils/import";
 
 const nestedImportService = ({ strapi }: { strapi: Core.Strapi }) => ({
   async importComponentData(
@@ -35,7 +35,7 @@ const nestedImportService = ({ strapi }: { strapi: Core.Strapi }) => ({
       if (bulkLocaleUpload) {
         for (const sheetName of workbook.SheetNames) {
           const sheet = workbook.Sheets[sheetName];
-          const rows: Record<string, any>[] = XLSX.utils.sheet_to_json(sheet);
+          const rows: Record<string, any>[] = sheetToJson(sheet);
           if (!rows.length) continue;
 
           const sheetResult = await this.importComponentSheet(
@@ -51,7 +51,7 @@ const nestedImportService = ({ strapi }: { strapi: Core.Strapi }) => ({
         }
       } else {
         const sheet = workbook.Sheets[workbook.SheetNames[0]];
-        const rows: Record<string, any>[] = XLSX.utils.sheet_to_json(sheet);
+        const rows: Record<string, any>[] = sheetToJson(sheet);
 
         if (!rows.length) {
           results.errors.push("No data found in file");
