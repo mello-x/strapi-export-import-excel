@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.3.0](https://github.com/mello-x/strapi-export-import-excel/compare/strapi-export-import-excel-v1.2.0...strapi-export-import-excel-v1.3.0) (2026-07-07)
+
+
+### Features
+
+* client-driven batched import to prevent import timeouts ([b6e2795](https://github.com/mello-x/strapi-export-import-excel/commit/b6e279564f796949c5c0d9ecf8753578bd367b1f))
+* client-driven batched import to prevent import timeouts ([42635ec](https://github.com/mello-x/strapi-export-import-excel/commit/42635eca87ec0ceeb587f6c7fcd9c0f38d2e2409))
+
 ## [1.2.0](https://github.com/mello-x/strapi-export-import-excel/compare/strapi-export-import-excel-v1.1.1...strapi-export-import-excel-v1.2.0) (2026-04-22)
 
 
