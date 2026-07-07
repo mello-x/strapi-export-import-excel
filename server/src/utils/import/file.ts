@@ -18,8 +18,7 @@ export function cleanupFile(filePath: string): void {
   }
 }
 
-export function sheetToJson(sheet: XLSX.WorkSheet): Record<string, any>[] {
-  const rows = XLSX.utils.sheet_to_json<Record<string, any>>(sheet);
+export function cleanSheetRows(rows: Record<string, any>[]): Record<string, any>[] {
   if (!rows.length) return rows;
 
   const headerCount = rows.reduce((max, r) => Math.max(max, Object.keys(r).length), 0);
@@ -36,4 +35,8 @@ export function sheetToJson(sheet: XLSX.WorkSheet): Record<string, any>[] {
     result.push(trimmed);
   }
   return result;
+}
+
+export function sheetToJson(sheet: XLSX.WorkSheet): Record<string, any>[] {
+  return cleanSheetRows(XLSX.utils.sheet_to_json<Record<string, any>>(sheet));
 }

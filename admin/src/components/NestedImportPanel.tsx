@@ -2,6 +2,8 @@ import { Box, Button, Flex, SingleSelect, SingleSelectOption, Toggle, Typography
 import { Upload } from "@strapi/icons";
 import { useNotification } from "@strapi/strapi/admin";
 import { useEffect, useRef, useState } from "react";
+import { runComponentImport } from "../utils/importClient";
+import { type ParsedSheet, parseWorkbook } from "../utils/parseWorkbook";
 import type { Locale } from "./LocaleSelect";
 import { LocaleSelect } from "./LocaleSelect";
 
@@ -34,9 +36,37 @@ const NestedImportPanel = ({ collections, locales, defaultLocale }: NestedImport
   const [fields, setFields] = useState<FieldDef[]>([]);
   const [isImporting, setIsImporting] = useState(false);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [parsedSheets, setParsedSheets] = useState<ParsedSheet[]>([]);
+  const [isParsing, setIsParsing] = useState(false);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [bulkLocaleUpload, setBulkLocaleUpload] = useState(false);
   const { toggleNotification } = useNotification();
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const clearFile = () => {
+    setPendingFile(null);
+    setParsedSheets([]);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+      clearFile();
+      return;
+    }
+    setIsParsing(true);
+    try {
+      const { sheets } = await parseWorkbook(file);
+      setParsedSheets(sheets);
+      setPendingFile(file);
+    } catch (error: any) {
+      toggleNotification({ type: "danger", message: `Failed to read file: ${error.message}` });
+      clearFile();
+    } finally {
+      setIsParsing(false);
+    }
+  };
 
   const isLocalized = collections.find((c) => c.uid === collection)?.isLocalized ?? false;
 
@@ -61,35 +91,32 @@ const NestedImportPanel = ({ collections, locales, defaultLocale }: NestedImport
     setLocale(defaultLocale);
     setBulkLocaleUpload(false);
     setPendingFile(null);
+    setParsedSheets([]);
   }, [collection, defaultLocale]);
 
   const handleImport = async () => {
-    if (!pendingFile || !collection || !componentField || !identifierField) return;
+    if (!pendingFile || !collection || !componentField || !identifierField || parsedSheets.length === 0) return;
 
     setIsImporting(true);
-    const formData = new FormData();
-    formData.append("file", pendingFile);
-    formData.append("contentType", collection);
-    formData.append("componentField", componentField);
-    formData.append("identifierField", identifierField);
-    if (bulkLocaleUpload) {
-      formData.append("bulkLocaleUpload", "true");
-    } else if (isLocalized && locale) {
-      formData.append("locale", locale);
-    }
+    setProgress({ done: 0, total: 0 });
 
     try {
-      const response = await fetch("/api/strapi-export-import-excel/import-component", {
-        method: "POST",
-        body: formData,
-      });
+      // Grouped by parent identifier and sent to the server in small batches, so a
+      // large nested import can't be cut off by a reverse-proxy / LB timeout.
+      const summary = await runComponentImport(
+        {
+          contentType: collection,
+          componentField,
+          identifierField,
+          bulkLocaleUpload,
+          locale: isLocalized ? locale : null,
+        },
+        parsedSheets,
+        (done, total) => setProgress({ done, total })
+      );
 
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || "Component import failed");
-
-      const updated = result.summary?.updated ?? 0;
-      const skipped = result.summary?.skipped ?? 0;
-      const errors = result.result?.errors?.length ?? 0;
+      const { updated, skipped } = summary;
+      const errors = summary.errors.length;
 
       if (errors > 0) {
         toggleNotification({
@@ -108,8 +135,8 @@ const NestedImportPanel = ({ collections, locales, defaultLocale }: NestedImport
       toggleNotification({ type: "danger", message: `Component import failed: ${error.message}` });
     } finally {
       setIsImporting(false);
-      setPendingFile(null);
-      if (fileInputRef.current) fileInputRef.current.value = "";
+      setProgress(null);
+      clearFile();
     }
   };
 
@@ -188,8 +215,7 @@ const NestedImportPanel = ({ collections, locales, defaultLocale }: NestedImport
               checked={bulkLocaleUpload}
               onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
                 setBulkLocaleUpload(e.target.checked);
-                setPendingFile(null);
-                if (fileInputRef.current) fileInputRef.current.value = "";
+                clearFile();
               }}
               onLabel="On"
               offLabel="Off"
@@ -211,8 +237,8 @@ const NestedImportPanel = ({ collections, locales, defaultLocale }: NestedImport
         ref={fileInputRef}
         type="file"
         accept=".xlsx,.xls"
-        onChange={(e) => setPendingFile(e.target.files?.[0] ?? null)}
-        disabled={isImporting}
+        onChange={handleFileSelect}
+        disabled={isImporting || isParsing}
         style={{ display: "none" }}
       />
 
@@ -224,15 +250,7 @@ const NestedImportPanel = ({ collections, locales, defaultLocale }: NestedImport
                 <Typography variant="omega" textColor="neutral600">
                   {pendingFile.name}
                 </Typography>
-                <Button
-                  variant="ghost"
-                  size="S"
-                  onClick={() => {
-                    setPendingFile(null);
-                    if (fileInputRef.current) fileInputRef.current.value = "";
-                  }}
-                  disabled={isImporting}
-                >
+                <Button variant="ghost" size="S" onClick={clearFile} disabled={isImporting}>
                   Cancel
                 </Button>
               </Flex>
@@ -246,11 +264,19 @@ const NestedImportPanel = ({ collections, locales, defaultLocale }: NestedImport
               >
                 Start Nested Import
               </Button>
+              {isImporting && progress && progress.total > 0 && (
+                <Box style={{ marginTop: "8px", textAlign: "center" }}>
+                  <Typography variant="pi" textColor="neutral600">
+                    Importing… {progress.done}/{progress.total} parents
+                  </Typography>
+                </Box>
+              )}
             </>
           ) : (
             <Button
               onClick={() => fileInputRef.current?.click()}
-              disabled={isImporting}
+              loading={isParsing}
+              disabled={isImporting || isParsing}
               startIcon={<Upload />}
               variant="secondary"
               size="L"

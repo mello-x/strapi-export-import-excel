@@ -73,5 +73,17 @@ export default () => ({
       handler: "import-controller.importComponent",
       config: { auth: false, policies: [] },
     },
+    {
+      method: "POST",
+      path: "/import-batch",
+      handler: "import-controller.importBatch",
+      config: { auth: false, policies: [] },
+    },
+    {
+      method: "POST",
+      path: "/import-component-batch",
+      handler: "import-controller.importComponentBatch",
+      config: { auth: false, policies: [] },
+    },
   ],
 });
