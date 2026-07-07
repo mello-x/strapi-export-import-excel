@@ -1,6 +1,7 @@
 import type { Core } from "@strapi/strapi";
 import * as XLSX from "xlsx";
 import {
+  cleanSheetRows,
   cleanupFile,
   getComponentFieldNames,
   getFileInfo,
@@ -51,6 +52,27 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
       cleanupFile(filePath);
       throw error;
     }
+  },
+
+  /**
+   * Import a single batch of already-parsed sheet rows (header→value objects),
+   * as sent by the admin UI's client-driven chunked import. Stateless: no file,
+   * no background work — each call fully completes within the request, so it can
+   * never exceed a reverse-proxy timeout no matter how large the source file is.
+   */
+  async importBatch(
+    rawRows: any[],
+    contentType: string,
+    locale: string | null = null,
+    identifierField: string | null = null,
+    publishOnImport = false
+  ): Promise<ImportResults> {
+    if (!strapi.contentTypes[contentType]) {
+      return { created: 0, updated: 0, skipped: 0, errors: [`Content type ${contentType} not found`] };
+    }
+    const rows = cleanSheetRows(Array.isArray(rawRows) ? rawRows : []);
+    const entries = this.unflattenRows(rows, contentType);
+    return this.importEntries(entries, contentType, locale, identifierField, publishOnImport);
   },
 
   transformExcelData(filePath: string, targetContentType: string | null = null): Record<string, any[]> {

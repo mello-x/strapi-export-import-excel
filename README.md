@@ -132,9 +132,11 @@ All endpoints are prefixed with `/api/strapi-export-import-excel`.
 | `GET` | `/collections/:uid/fields` | Get fields for a collection |
 | `GET` | `/tabledata` | Paginated data preview |
 | `GET` | `/export` | Download export |
-| `POST` | `/import` | Import file |
+| `POST` | `/import` | Import a whole file (multipart) |
 | `POST` | `/import-headers` | Read column headers from a file |
-| `POST` | `/import-component` | Import repeatable component data |
+| `POST` | `/import-component` | Import repeatable component data (whole file, multipart) |
+| `POST` | `/import-batch` | Import a batch of parsed rows (JSON) — used by the admin UI |
+| `POST` | `/import-component-batch` | Import a batch of parsed component rows (JSON) — used by the admin UI |
 
 ---
 
@@ -149,6 +151,7 @@ Go to **Settings → Export / Import Excel → Collections** to configure per-co
 
 ## Notes
 
+- The admin UI parses the Excel file in the browser and imports it in small batches (via `/import-batch` and `/import-component-batch`). Each request is short, so imports of any size are never cut off by a reverse-proxy / load-balancer endpoint timeout. The whole-file `/import` and `/import-component` endpoints remain available for direct/programmatic use.
 - Media fields are excluded from export/import
 - Single (non-repeatable) components are flattened into `componentName_subField` columns
 - Repeatable components are expanded into JOIN-style rows with dot notation headers

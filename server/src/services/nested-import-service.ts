@@ -1,6 +1,13 @@
 import type { Core } from "@strapi/strapi";
 import * as XLSX from "xlsx";
-import { cleanupFile, getFileInfo, type ImportResults, mergeResults, sheetToJson } from "../utils/import";
+import {
+  cleanSheetRows,
+  cleanupFile,
+  getFileInfo,
+  type ImportResults,
+  mergeResults,
+  sheetToJson,
+} from "../utils/import";
 
 const nestedImportService = ({ strapi }: { strapi: Core.Strapi }) => ({
   async importComponentData(
@@ -22,7 +29,7 @@ const nestedImportService = ({ strapi }: { strapi: Core.Strapi }) => ({
     if (!attributes) throw new Error(`Content type ${contentType} not found`);
 
     const componentDef = attributes[componentField] as any;
-    if (!componentDef || componentDef.type !== "component" || !componentDef.repeatable) {
+    if (componentDef?.type !== "component" || !componentDef.repeatable) {
       throw new Error(`"${componentField}" is not a repeatable component field on ${contentType}`);
     }
 
@@ -71,6 +78,59 @@ const nestedImportService = ({ strapi }: { strapi: Core.Strapi }) => ({
       }
     } finally {
       cleanupFile(filePath);
+    }
+
+    return results;
+  },
+
+  /**
+   * Import a single batch of already-parsed component rows (header→value objects)
+   * for one locale, as sent by the admin UI's client-driven chunked nested import.
+   * The caller must keep all rows for a given parent identifier within the same
+   * batch (the sheet is processed as a full-replace per parent). Stateless: no
+   * file, no background work — completes within the request, so it can't exceed a
+   * reverse-proxy timeout regardless of source-file size.
+   */
+  async importComponentBatch(
+    rawRows: any[],
+    contentType: string,
+    componentField: string,
+    identifierField: string,
+    locale: string | null = null,
+    publishOnImport = true
+  ): Promise<ImportResults> {
+    const results: ImportResults = { created: 0, updated: 0, skipped: 0, errors: [] };
+
+    const attributes = strapi.contentTypes[contentType]?.attributes;
+    if (!attributes) {
+      results.errors.push(`Content type ${contentType} not found`);
+      return results;
+    }
+
+    const componentDef = attributes[componentField] as any;
+    if (componentDef?.type !== "component" || !componentDef.repeatable) {
+      results.errors.push(`"${componentField}" is not a repeatable component field on ${contentType}`);
+      return results;
+    }
+
+    const rows = cleanSheetRows(Array.isArray(rawRows) ? rawRows : []);
+    if (!rows.length) return results;
+
+    try {
+      const sheetResult = await this.importComponentSheet(
+        rows,
+        contentType,
+        componentField,
+        componentDef.component,
+        identifierField,
+        locale,
+        publishOnImport
+      );
+      mergeResults(results, sheetResult);
+    } catch (err: any) {
+      // importComponentSheet rolls its transaction back and rethrows on any parent
+      // failure; surface it as a batch error instead of crashing the client loop.
+      results.errors.push(err?.message || String(err));
     }
 
     return results;

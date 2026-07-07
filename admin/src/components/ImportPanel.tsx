@@ -2,6 +2,8 @@ import { Box, Button, Flex, SingleSelect, SingleSelectOption, Toggle, Typography
 import { Upload } from "@strapi/icons";
 import { useNotification } from "@strapi/strapi/admin";
 import { useRef, useState } from "react";
+import { runImport } from "../utils/importClient";
+import { type ParsedSheet, parseWorkbook } from "../utils/parseWorkbook";
 import type { Locale } from "./LocaleSelect";
 import { LocaleSelect } from "./LocaleSelect";
 
@@ -35,11 +37,13 @@ const ImportPanel = ({
 }: ImportPanelProps) => {
   const [isImporting, setIsImporting] = useState(false);
   const [excelHeaders, setExcelHeaders] = useState<string[]>([]);
+  const [parsedSheets, setParsedSheets] = useState<ParsedSheet[]>([]);
   const [identifierField, setIdentifierField] = useState<string>("");
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [isLoadingHeaders, setIsLoadingHeaders] = useState(false);
   const [bulkLocaleUpload, setBulkLocaleUpload] = useState(false);
   const [publishOnImport, setPublishOnImport] = useState(false);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const { toggleNotification } = useNotification();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -47,6 +51,7 @@ const ImportPanel = ({
 
   const resetImportState = () => {
     setExcelHeaders([]);
+    setParsedSheets([]);
     setIdentifierField("");
     setPendingFile(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
@@ -64,18 +69,14 @@ const ImportPanel = ({
     if (!file || !importCollection) return;
 
     setIsLoadingHeaders(true);
-    const formData = new FormData();
-    formData.append("file", file);
-
     try {
-      const response = await fetch("/api/strapi-export-import-excel/import-headers", {
-        method: "POST",
-        body: formData,
-      });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || "Failed to read file headers");
+      // Parse the workbook in the browser — no upload. The import itself is then
+      // sent to the server in small row batches, so it can't hit a proxy timeout.
+      const { sheets, headers } = await parseWorkbook(file);
+      if (headers.length === 0) throw new Error("No columns found in the file");
 
-      setExcelHeaders(result.headers ?? []);
+      setParsedSheets(sheets);
+      setExcelHeaders(headers);
       setPendingFile(file);
       setIdentifierField("");
     } catch (error: any) {
@@ -87,34 +88,26 @@ const ImportPanel = ({
   };
 
   const handleImportConfirm = async () => {
-    if (!pendingFile || !importCollection || !identifierField) return;
+    if (!pendingFile || !importCollection || !identifierField || parsedSheets.length === 0) return;
 
     setIsImporting(true);
-    const formData = new FormData();
-    formData.append("file", pendingFile);
-    formData.append("contentType", importCollection);
-    formData.append("identifierField", identifierField);
-    if (publishOnImport) {
-      formData.append("publishOnImport", "true");
-    }
-    if (bulkLocaleUpload) {
-      formData.append("bulkLocaleUpload", "true");
-    } else if (importIsLocalized && importLocale) {
-      formData.append("locale", importLocale);
-    }
+    setProgress({ done: 0, total: 0 });
 
     try {
-      const response = await fetch("/api/strapi-export-import-excel/import", {
-        method: "POST",
-        body: formData,
-      });
+      const summary = await runImport(
+        {
+          contentType: importCollection,
+          identifierField,
+          publishOnImport,
+          bulkLocaleUpload,
+          locale: importIsLocalized ? importLocale : null,
+        },
+        parsedSheets,
+        (done, total) => setProgress({ done, total })
+      );
 
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || "Import failed");
-
-      const created = result.summary?.created ?? result.result?.created ?? 0;
-      const updated = result.summary?.updated ?? result.result?.updated ?? 0;
-      const errors = result.result?.errors?.length ?? 0;
+      const { created, updated } = summary;
+      const errors = summary.errors.length;
       const total = created + updated;
 
       if (errors > 0) {
@@ -134,6 +127,7 @@ const ImportPanel = ({
       toggleNotification({ type: "danger", message: `Import failed: ${error.message}` });
     } finally {
       setIsImporting(false);
+      setProgress(null);
       resetImportState();
     }
   };
@@ -260,6 +254,13 @@ const ImportPanel = ({
             >
               Start Import
             </Button>
+            {isImporting && progress && progress.total > 0 && (
+              <Box style={{ marginTop: "8px", textAlign: "center" }}>
+                <Typography variant="pi" textColor="neutral600">
+                  Importing… {progress.done}/{progress.total} rows
+                </Typography>
+              </Box>
+            )}
           </Box>
         </>
       ) : (
