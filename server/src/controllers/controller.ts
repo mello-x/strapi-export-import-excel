@@ -1,4 +1,5 @@
 import type { Core } from "@strapi/strapi";
+import { MEDIA_ALT_SUBFIELD } from "../constants";
 import type { ExportField, PluginSettings } from "../types";
 import { buildDeepPopulate, buildQuery, expandEntry, extractSchemaFieldSets, validateFilter } from "../utils/export";
 import { SYSTEM_KEYS } from "../utils/import";
@@ -82,17 +83,18 @@ const controller = ({ strapi }: { strapi: Core.Strapi }) => ({
     const schema = strapi.contentTypes[uid];
     if (!schema) return ctx.throw(404, "Content type not found");
 
-    const SKIP_TYPES = ["media"];
+    const toLabel = (key: string) => key.replace(/([A-Z])/g, " $1").replace(/^./, (s: string) => s.toUpperCase());
 
     const fields = Object.entries(schema.attributes)
-      .filter(
-        ([key, def]: [string, any]) => !SYSTEM_KEYS_SET.has(key) && !SKIP_TYPES.includes(def.type) && !def.customField
-      )
-      .map(([key, def]: [string, any]) => ({
-        key,
-        label: key.replace(/([A-Z])/g, " $1").replace(/^./, (s: string) => s.toUpperCase()),
-        type: def.type,
-      }));
+      .filter(([key, def]: [string, any]) => !SYSTEM_KEYS_SET.has(key) && !def.customField)
+      .flatMap(([key, def]: [string, any]) => {
+        if (def.type !== "media") {
+          return [{ key, label: toLabel(key), type: def.type }];
+        }
+
+        if (def.multiple) return [];
+        return [{ key: `${key}.${MEDIA_ALT_SUBFIELD}`, label: `${toLabel(key)} Alt Text`, type: "string" }];
+      });
 
     ctx.body = { fields };
   },

@@ -19,6 +19,7 @@ Plugin preview
 - **Live preview** — paginated table preview before downloading, with drag-and-drop column reordering
 - **Per-collection field config** — configure which fields to include/exclude and their order
 - **Locale support** — export and import specific locales, or bulk import with one sheet per locale
+- **Image alt text** — bulk-edit the alt text of images linked from a single media field
 - **Relation handling** — relations are exported as `field:value` format and resolved back on import
 - **Repeatable components** — exported as JOIN-style rows (one row per component item, parent fields duplicated)
 
@@ -93,6 +94,34 @@ When enabled, each sheet in the Excel file represents a locale (sheet name = loc
 
 ---
 
+## Image Alt Text
+
+Alt text lives on the **file** in the Media Library, not on the entry that links to it. The plugin
+exposes it as a `<mediaField>.alternativeText` column so it can be bulk-edited from a spreadsheet.
+
+Export a collection to get the template pre-filled with current values, edit the column, re-import:
+
+| sku | banner.alternativeText |
+|-----|------------------------|
+| SKU-1 | SKU Example |
+| SKU-2 | Amazing Product |
+
+- Select any normal column as the **Identifier Field** (`sku` above). Alt-text columns are excluded
+  from that dropdown — they identify a file, not an entry.
+- A **blank cell leaves the alt text unchanged.** There is no way to clear alt text from a sheet.
+- Only `alternativeText` is writable. `name` is deliberately excluded, since bulk-renaming assets is
+  destructive.
+- Only **single** media fields are supported. `multiple: true` media stays excluded entirely.
+- The alt text is **shared across all locales**, because the file record is not localized. Importing
+  a different value per locale sheet just leaves whichever ran last.
+- Rows are reported separately as alt-text updates, so an import that changes no entries still tells
+  you what it did.
+
+If the entry has no file attached, or the row creates a new entry, the alt text is skipped and
+reported as an error for that row.
+
+---
+
 ## Relation Format
 
 Relations are exported and imported using the `field:value` syntax:
@@ -152,9 +181,11 @@ Go to **Settings → Export / Import Excel → Collections** to configure per-co
 ## Notes
 
 - The admin UI parses the Excel file in the browser and imports it in small batches (via `/import-batch` and `/import-component-batch`). Each request is short, so imports of any size are never cut off by a reverse-proxy / load-balancer endpoint timeout. The whole-file `/import` and `/import-component` endpoints remain available for direct/programmatic use.
-- Media fields are excluded from export/import
+- Media fields are excluded from export/import, apart from the `<field>.alternativeText` column described in [Image Alt Text](#image-alt-text)
 - Single (non-repeatable) components are flattened into `componentName_subField` columns
 - Repeatable components are expanded into JOIN-style rows with dot notation headers
+- A relation column absent from the sheet is left untouched; a column that is present but empty
+  clears the relation. This means narrow sheets are safe — they only touch the columns they contain
 - Nested import always publishes the updated entry by default
 - Custom fields are excluded from export
 

@@ -34,7 +34,7 @@ const nestedImportService = ({ strapi }: { strapi: Core.Strapi }) => ({
     }
 
     const componentUid = componentDef.component;
-    const results: ImportResults = { created: 0, updated: 0, skipped: 0, errors: [] };
+    const results: ImportResults = { created: 0, updated: 0, skipped: 0, mediaUpdated: 0, errors: [] };
 
     try {
       const workbook = XLSX.readFile(filePath);
@@ -99,7 +99,7 @@ const nestedImportService = ({ strapi }: { strapi: Core.Strapi }) => ({
     locale: string | null = null,
     publishOnImport = true
   ): Promise<ImportResults> {
-    const results: ImportResults = { created: 0, updated: 0, skipped: 0, errors: [] };
+    const results: ImportResults = { created: 0, updated: 0, skipped: 0, mediaUpdated: 0, errors: [] };
 
     const attributes = strapi.contentTypes[contentType]?.attributes;
     if (!attributes) {
@@ -145,7 +145,7 @@ const nestedImportService = ({ strapi }: { strapi: Core.Strapi }) => ({
     locale: string | null,
     publishOnImport: boolean
   ) {
-    const results: ImportResults = { created: 0, updated: 0, skipped: 0, errors: [] };
+    const results: ImportResults = { created: 0, updated: 0, skipped: 0, mediaUpdated: 0, errors: [] };
 
     const grouped: Record<string, Record<string, any>[]> = {};
     for (const row of rows) {

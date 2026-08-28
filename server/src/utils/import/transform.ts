@@ -1,3 +1,5 @@
+import { MEDIA_ALT_SUBFIELD } from "../../constants";
+
 export function toCamel(str: string): string {
   return str.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
 }
@@ -75,4 +77,31 @@ export function mergeComponentData(
   }
 
   return data;
+}
+
+/**
+ * Row side-channel holding `<mediaField>.alternativeText` values. These describe the
+ * *file* a media field points at, not the entry, so they must never reach
+ * `strapi.documents().update()` — that would be read as "which file to link".
+ */
+export const MEDIA_ALT_KEY = "__mediaAlt";
+
+/** Single (non-multiple) media fields, whose file alt text is editable from a sheet. */
+export function getMediaAltFieldNames(attributes: Record<string, any>): string[] {
+  return Object.entries<any>(attributes)
+    .filter(([, attr]) => attr.type === "media" && !attr.multiple)
+    .map(([fieldName]) => fieldName);
+}
+
+/**
+ * Resolves a column header to the media field whose alt text it targets,
+ * or null when the header is not a media alt column.
+ */
+export function parseMediaAltColumn(header: string, mediaAltFields: string[]): string | null {
+  const idx = header.indexOf(".");
+  if (idx === -1) return null;
+  const field = header.slice(0, idx);
+  const sub = header.slice(idx + 1);
+  if (sub !== MEDIA_ALT_SUBFIELD) return null;
+  return mediaAltFields.includes(field) ? field : null;
 }
