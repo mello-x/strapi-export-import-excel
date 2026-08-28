@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.5.0](https://github.com/mello-x/strapi-export-import-excel/compare/strapi-export-import-excel-v1.4.0...strapi-export-import-excel-v1.5.0) (2026-08-28)
+
+
+### Features
+
+* update node version ([0279dcc](https://github.com/mello-x/strapi-export-import-excel/commit/0279dccb6b6b675ea447481112c018382bf32964))
+* update node version ([8a70496](https://github.com/mello-x/strapi-export-import-excel/commit/8a70496a96d41adee11212a69240ab2bcb88d89c))
+
 ## [1.4.0](https://github.com/mello-x/strapi-export-import-excel/compare/strapi-export-import-excel-v1.3.0...strapi-export-import-excel-v1.4.0) (2026-08-28)
 
 
