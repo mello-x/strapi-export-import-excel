@@ -10,18 +10,27 @@ export interface BatchSummary {
   created: number;
   updated: number;
   skipped: number;
+  /** Files whose alternativeText was written via a `<mediaField>.alternativeText` column. */
+  mediaUpdated: number;
   errors: string[];
 }
 
 export type ProgressFn = (done: number, total: number) => void;
 
-const emptySummary = (): BatchSummary => ({ created: 0, updated: 0, skipped: 0, errors: [] });
+/**
+ * `<mediaField>.alternativeText` columns target the linked file's metadata, not the
+ * entry, so they can never serve as the identifier column used to match entries.
+ */
+export const isMediaAltColumn = (header: string): boolean => header.endsWith(".alternativeText");
+
+const emptySummary = (): BatchSummary => ({ created: 0, updated: 0, skipped: 0, mediaUpdated: 0, errors: [] });
 
 function mergeSummary(agg: BatchSummary, response: any): void {
   const result = response?.result ?? {};
   agg.created += result.created ?? 0;
   agg.updated += result.updated ?? 0;
   agg.skipped += result.skipped ?? 0;
+  agg.mediaUpdated += result.mediaUpdated ?? 0;
   if (Array.isArray(result.errors)) agg.errors.push(...result.errors);
 }
 

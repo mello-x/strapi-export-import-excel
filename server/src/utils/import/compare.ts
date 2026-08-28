@@ -5,6 +5,7 @@ export function mergeResults(target: ImportResults, source: ImportResults): void
   target.created += source.created;
   target.updated += source.updated;
   target.skipped += source.skipped;
+  target.mediaUpdated += source.mediaUpdated;
   target.errors = target.errors.concat(source.errors);
 }
 

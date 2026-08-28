@@ -1,4 +1,4 @@
-import { COMPONENT_STRIP_KEYS, SHORTCUT_FIELDS } from "../../constants";
+import { COMPONENT_STRIP_KEYS, MEDIA_ALT_SUBFIELD, SHORTCUT_FIELDS } from "../../constants";
 import type { SchemaFieldSets } from "../../types";
 
 export function resolveRelationForExport(relationValue: any): string | null {
@@ -105,6 +105,10 @@ export function extractSchemaFieldSets(attributes: Record<string, any>, strapi: 
   const skipFields = Object.entries<any>(attributes)
     .filter(([, fieldDef]) => fieldDef.type === "media")
     .map(([fieldName]) => fieldName);
+
+  const mediaAltFields = Object.entries<any>(attributes)
+    .filter(([, fieldDef]) => fieldDef.type === "media" && !fieldDef.multiple)
+    .map(([fieldName]) => fieldName);
   const repeatableComponentDefs = Object.entries<any>(attributes)
     .filter(([, fieldDef]) => fieldDef.type === "component" && fieldDef.repeatable)
     .map(([fieldName, fieldDef]) => ({ fieldName, componentUid: fieldDef.component }));
@@ -121,6 +125,7 @@ export function extractSchemaFieldSets(attributes: Record<string, any>, strapi: 
     customFields,
     relationFields,
     skipFields,
+    mediaAltFields,
     repeatableComponentDefs,
     singleComponentFields,
     repeatableColumns,
@@ -134,13 +139,18 @@ export function buildFlatFields(
 ): Record<string, any> {
   const isSystemKey =
     systemKeys instanceof Set ? (k: string) => systemKeys.has(k) : (k: string) => systemKeys.includes(k);
-  const { customFields, relationFields, skipFields, repeatableComponentDefs, singleComponentFields } = fieldSets;
+  const { customFields, relationFields, skipFields, mediaAltFields, repeatableComponentDefs, singleComponentFields } =
+    fieldSets;
   const result: Record<string, any> = {};
 
   for (const fieldName in entry) {
     const fieldValue = entry[fieldName];
     if (isSystemKey(fieldName)) continue;
     if (customFields.includes(fieldName)) continue;
+    if (mediaAltFields.includes(fieldName)) {
+      result[`${fieldName}.${MEDIA_ALT_SUBFIELD}`] = fieldValue?.[MEDIA_ALT_SUBFIELD] ?? null;
+      continue;
+    }
     if (skipFields.includes(fieldName)) continue;
     if (repeatableComponentDefs.some((def) => def.fieldName === fieldName)) continue;
 

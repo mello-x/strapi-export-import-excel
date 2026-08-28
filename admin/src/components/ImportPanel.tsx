@@ -2,7 +2,7 @@ import { Box, Button, Flex, SingleSelect, SingleSelectOption, Toggle, Typography
 import { Upload } from "@strapi/icons";
 import { useNotification } from "@strapi/strapi/admin";
 import { useRef, useState } from "react";
-import { runImport } from "../utils/importClient";
+import { isMediaAltColumn, runImport } from "../utils/importClient";
 import { type ParsedSheet, parseWorkbook } from "../utils/parseWorkbook";
 import type { Locale } from "./LocaleSelect";
 import { LocaleSelect } from "./LocaleSelect";
@@ -106,19 +106,20 @@ const ImportPanel = ({
         (done, total) => setProgress({ done, total })
       );
 
-      const { created, updated } = summary;
+      const { created, updated, mediaUpdated } = summary;
       const errors = summary.errors.length;
-      const total = created + updated;
+      const total = created + updated + mediaUpdated;
+      const altText = mediaUpdated > 0 ? `, ${mediaUpdated} image alt text${mediaUpdated === 1 ? "" : "s"}` : "";
 
       if (errors > 0) {
         toggleNotification({
           type: "warning",
-          message: `Import completed with ${errors} error(s). Processed ${total} entries (${created} created, ${updated} updated)`,
+          message: `Import completed with ${errors} error(s). ${created} created, ${updated} updated${altText}`,
         });
       } else if (total > 0) {
         toggleNotification({
           type: "success",
-          message: `Import completed! ${created} created, ${updated} updated`,
+          message: `Import completed! ${created} created, ${updated} updated${altText}`,
         });
       } else {
         toggleNotification({ type: "info", message: "Import completed — no changes made" });
@@ -235,11 +236,13 @@ const ImportPanel = ({
               onChange={(val: string | number) => setIdentifierField(String(val))}
               placeholder="Select identifier column..."
             >
-              {excelHeaders.map((col) => (
-                <SingleSelectOption key={col} value={col}>
-                  {col}
-                </SingleSelectOption>
-              ))}
+              {excelHeaders
+                .filter((col) => !isMediaAltColumn(col))
+                .map((col) => (
+                  <SingleSelectOption key={col} value={col}>
+                    {col}
+                  </SingleSelectOption>
+                ))}
             </SingleSelect>
           </Box>
 

@@ -5,13 +5,16 @@ import {
   cleanupFile,
   getComponentFieldNames,
   getFileInfo,
+  getMediaAltFieldNames,
   getRelationFieldDefs,
   hasChanges,
   type ImportBatch,
   type ImportResults,
+  MEDIA_ALT_KEY,
   mergeComponentData,
   mergeResults,
   parseJsonIfNeeded,
+  parseMediaAltColumn,
   SHORTCUT_FIELDS,
   setNestedPath,
   sheetToJson,
@@ -68,7 +71,7 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
     publishOnImport = false
   ): Promise<ImportResults> {
     if (!strapi.contentTypes[contentType]) {
-      return { created: 0, updated: 0, skipped: 0, errors: [`Content type ${contentType} not found`] };
+      return { created: 0, updated: 0, skipped: 0, mediaUpdated: 0, errors: [`Content type ${contentType} not found`] };
     }
     const rows = cleanSheetRows(Array.isArray(rawRows) ? rawRows : []);
     const entries = this.unflattenRows(rows, contentType);
@@ -131,12 +134,20 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
     const compFieldDefs = Object.entries<any>(attributes)
       .filter(([, def]) => def.type === "component")
       .map(([name, def]) => ({ name, repeatable: !!def.repeatable }));
+    const mediaAltFields = getMediaAltFieldNames(attributes);
 
     return rows.map((row) => {
       const rowData: Record<string, any> = {};
 
       for (const [key, rawValue] of Object.entries(row)) {
         const value = rawValue === "" || rawValue === undefined ? null : rawValue;
+
+        const mediaField = parseMediaAltColumn(key, mediaAltFields);
+        if (mediaField) {
+          if (!rowData[MEDIA_ALT_KEY]) rowData[MEDIA_ALT_KEY] = {};
+          rowData[MEDIA_ALT_KEY][mediaField] = value;
+          continue;
+        }
 
         const compDef = compFieldDefs.find((c) => key === c.name || key.startsWith(`${c.name}_`));
 
@@ -246,6 +257,13 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
 
     for (const rel of relationFields) {
       const { field, target, relation } = rel;
+
+      // A column absent from the sheet means "leave this relation alone"; only a column
+      // that is present and empty clears it. Without this distinction a narrow sheet
+      // (e.g. sku + banner.alternativeText) silently wipes every relation it omits,
+      // and reports the wipe as a successful "updated".
+      if (!(field in entry)) continue;
+
       let value = entry[field];
 
       if (!value || value === "") {
@@ -344,7 +362,7 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
     identifierField: string | null = null,
     publishOnImport = false
   ) {
-    const results: ImportResults = { created: 0, updated: 0, skipped: 0, errors: [] };
+    const results: ImportResults = { created: 0, updated: 0, skipped: 0, mediaUpdated: 0, errors: [] };
 
     for (const [contentType, entries] of Object.entries(importData)) {
       if (!strapi.contentTypes[contentType]) {
@@ -367,7 +385,7 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
   },
 
   async bulkInsertBatches(batches: ImportBatch[], identifierField: string | null = null, publishOnImport = false) {
-    const results: ImportResults = { created: 0, updated: 0, skipped: 0, errors: [] };
+    const results: ImportResults = { created: 0, updated: 0, skipped: 0, mediaUpdated: 0, errors: [] };
 
     for (const { contentType, locale, entries } of batches) {
       if (!strapi.contentTypes[contentType]) {
@@ -385,6 +403,48 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
     return results;
   },
 
+  /**
+   * Writes `<mediaField>.alternativeText` values onto the *files* the entry's media
+   * fields point at, via the upload plugin. The document service cannot do this: it
+   * reads a media field as "which file to link", not as that file's metadata.
+   *
+   * Called outside the `hasChanges` gate in importEntries by design. A row carrying
+   * only alt text produces no entry-level diff, so gating this on an entry write
+   * would make every such row a silent no-op.
+   *
+   * A blank cell means "leave unchanged", matching updateFileInfo's nil semantics.
+   */
+  async applyMediaAltText(
+    mediaAltValues: Record<string, any>,
+    entry: any,
+    results: ImportResults,
+    rowNumber: number
+  ): Promise<void> {
+    const pending = Object.entries(mediaAltValues).filter(([, value]) => value != null && String(value).trim() !== "");
+    if (pending.length === 0) return;
+
+    if (!entry) {
+      results.errors.push(`Row ${rowNumber}: alt text given but the entry was created, so no file is linked yet`);
+      return;
+    }
+
+    const uploadService = strapi.plugin("upload").service("upload");
+
+    for (const [field, rawValue] of pending) {
+      const alternativeText = String(rawValue).trim();
+      const file = entry[field];
+
+      if (!file?.id) {
+        results.errors.push(`Row ${rowNumber}: "${field}" has no file attached — alt text skipped`);
+        continue;
+      }
+      if (file.alternativeText === alternativeText) continue;
+
+      await uploadService.updateFileInfo(file.id, { alternativeText });
+      results.mediaUpdated++;
+    }
+  },
+
   async importEntries(
     entries: any[],
     contentType: string,
@@ -392,7 +452,7 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
     identifierField: string | null = null,
     publishOnImport = false
   ) {
-    const results = { created: 0, updated: 0, skipped: 0, errors: [] as string[] };
+    const results: ImportResults = { created: 0, updated: 0, skipped: 0, mediaUpdated: 0, errors: [] };
     const attributes = strapi.contentTypes[contentType]?.attributes ?? {};
     const compFields = getComponentFieldNames(attributes);
 
@@ -413,7 +473,7 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
         }
 
         let existing: any = null;
-        const { id, ...rawData } = entry;
+        const { id, [MEDIA_ALT_KEY]: mediaAltValues, ...rawData } = entry;
 
         if (identifierField && identifierField !== "id" && entry[identifierField] != null) {
           existing = await strapi.documents(contentType as any).findFirst({
@@ -433,7 +493,12 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
         data = await this.handleComponentRelations(data, contentType, locale);
         data = mergeComponentData(data, existing, compFields);
 
+        // The entry the row's media alt text applies to, if any. Set wherever we
+        // matched an existing document; stays null when the row creates one.
+        let mediaEntry: any = null;
+
         if (existing) {
+          mediaEntry = existing;
           const needsPublish = publishOnImport && existing.publishedAt == null;
           if (hasChanges(existing, data) || needsPublish) {
             await strapi.documents(contentType as any).update({
@@ -450,6 +515,7 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
             populate: "*",
           } as any);
           if (existingAnyLocale) {
+            mediaEntry = existingAnyLocale;
             await strapi.documents(contentType as any).update({
               documentId: existingAnyLocale.documentId,
               data,
@@ -472,6 +538,11 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
             ...localeParam,
           } as any);
           results.created++;
+        }
+
+        // Outside the hasChanges gate on purpose — see applyMediaAltText.
+        if (mediaAltValues) {
+          await this.applyMediaAltText(mediaAltValues, mediaEntry, results, i + 2);
         }
       } catch (err: any) {
         const errorMsg = err?.message || err?.details?.errors?.[0]?.message || JSON.stringify(err);
