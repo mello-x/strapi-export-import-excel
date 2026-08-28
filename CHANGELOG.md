@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.4.0](https://github.com/mello-x/strapi-export-import-excel/compare/strapi-export-import-excel-v1.3.0...strapi-export-import-excel-v1.4.0) (2026-08-28)
+
+
+### Features
+
+* enhance media field handling in import/export processes ([59a1fd5](https://github.com/mello-x/strapi-export-import-excel/commit/59a1fd597f1f26d39eed5c0d08a72cccb18994f9))
+* enhance media field handling in import/export processes ([abbb744](https://github.com/mello-x/strapi-export-import-excel/commit/abbb744b600e4b7570e89d2e67f8b857630021ef))
+
 ## [1.3.0](https://github.com/mello-x/strapi-export-import-excel/compare/strapi-export-import-excel-v1.2.0...strapi-export-import-excel-v1.3.0) (2026-07-07)
 
 
