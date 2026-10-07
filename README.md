@@ -13,11 +13,10 @@ Plugin preview
 
 ## Features
 
-- **Export to Excel** — export any collection with field filtering and column reordering
-- **Import from Excel / JSON** — upsert entries using a configurable identifier field
+- **Export to Excel** — export any collection with column selection and reordering
+- **Import from Excel** — upsert entries using a configurable identifier field
 - **Nested Import** — import repeatable component data from a separate Excel file, linked to parent entries by an identifier field
 - **Live preview** — paginated table preview before downloading, with drag-and-drop column reordering
-- **Per-collection field config** — configure which fields to include/exclude and their order
 - **Locale support** — export and import specific locales, or bulk import with one sheet per locale
 - **Image alt text** — bulk-edit the alt text of images linked from a single media field
 - **Relation handling** — relations are exported as `field:value` format and resolved back on import
@@ -159,28 +158,17 @@ All endpoints are prefixed with `/api/strapi-export-import-excel`.
 | `GET` | `/collections` | List all collections |
 | `GET` | `/locales` | List available locales |
 | `GET` | `/collections/:uid/fields` | Get fields for a collection |
-| `GET` | `/tabledata` | Paginated data preview |
-| `GET` | `/export` | Download export |
-| `POST` | `/import` | Import a whole file (multipart) |
-| `POST` | `/import-headers` | Read column headers from a file |
-| `POST` | `/import-component` | Import repeatable component data (whole file, multipart) |
+| `GET` | `/tabledata` | Paginated rows (`start`/`limit`, `columns`, `locale`) — used by the preview and the admin download |
+| `GET` | `/export` | Download the whole export in one request (`sortOrder` = columns, `locale`) |
 | `POST` | `/import-batch` | Import a batch of parsed rows (JSON) — used by the admin UI |
 | `POST` | `/import-component-batch` | Import a batch of parsed component rows (JSON) — used by the admin UI |
 
 ---
 
-## Field Configuration
-
-Go to **Settings → Export / Import Excel → Collections** to configure per-collection field settings:
-
-- Toggle fields on/off for export
-- Drag to reorder fields — the order determines column order in the exported file
-
----
-
 ## Notes
 
-- The admin UI parses the Excel file in the browser and imports it in small batches (via `/import-batch` and `/import-component-batch`). Each request is short, so imports of any size are never cut off by a reverse-proxy / load-balancer endpoint timeout. The whole-file `/import` and `/import-component` endpoints remain available for direct/programmatic use.
+- Built for hosts behind short reverse-proxy / load-balancer timeouts: the admin UI never sends one big request. Import parses the file in the browser and sends it in batches (`/import-batch`, `/import-component-batch`); export pages through `/tabledata` and builds the file in the browser. Batches start small and are resized from each request's duration to stay around 3 seconds. `/export` still builds the whole file in one request, so for large collections behind a short timeout, page `/tabledata` instead.
+- Import errors are listed in the panel per row (`Row N (identifier=value): field: message`). A batch that fails is listed by its row range and the rest of the import continues; re-running it updates rows that have an identifier value instead of duplicating them (rows with an empty identifier are created again).
 - Media fields are excluded from export/import, apart from the `<field>.alternativeText` column described in [Image Alt Text](#image-alt-text)
 - Single (non-repeatable) components are flattened into `componentName_subField` columns
 - Repeatable components are expanded into JOIN-style rows with dot notation headers

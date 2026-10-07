@@ -2,39 +2,22 @@ import { Box, Button, Flex, SingleSelect, SingleSelectOption, Toggle, Typography
 import { Upload } from "@strapi/icons";
 import { useNotification } from "@strapi/strapi/admin";
 import { useRef, useState } from "react";
+import { type Collection, PANEL_STYLE } from "../shared";
 import { isMediaAltColumn, runImport } from "../utils/importClient";
 import { type ParsedSheet, parseWorkbook } from "../utils/parseWorkbook";
+import { ImportErrors } from "./ImportErrors";
 import type { Locale } from "./LocaleSelect";
 import { LocaleSelect } from "./LocaleSelect";
-
-interface Collection {
-  uid: string;
-  displayName: string;
-  isLocalized: boolean;
-  importEnabled?: boolean;
-}
 
 interface ImportPanelProps {
   collections: Collection[];
   locales: Locale[];
-  importCollection: string;
-  importLocale: string;
   defaultLocale: string;
-  onCollectionChange: (uid: string) => void;
-  onLocaleChange: (locale: string) => void;
 }
 
-const PANEL_STYLE = { border: "1px solid #E3E3E8", borderRadius: "8px", padding: "28px" };
-
-const ImportPanel = ({
-  collections,
-  locales,
-  importCollection,
-  importLocale,
-  defaultLocale,
-  onCollectionChange,
-  onLocaleChange,
-}: ImportPanelProps) => {
+const ImportPanel = ({ collections, locales, defaultLocale }: ImportPanelProps) => {
+  const [importCollection, setImportCollection] = useState("");
+  const [importLocale, setImportLocale] = useState(defaultLocale);
   const [isImporting, setIsImporting] = useState(false);
   const [excelHeaders, setExcelHeaders] = useState<string[]>([]);
   const [parsedSheets, setParsedSheets] = useState<ParsedSheet[]>([]);
@@ -44,6 +27,7 @@ const ImportPanel = ({
   const [bulkLocaleUpload, setBulkLocaleUpload] = useState(false);
   const [publishOnImport, setPublishOnImport] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const [importErrors, setImportErrors] = useState<string[]>([]);
   const { toggleNotification } = useNotification();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -58,8 +42,9 @@ const ImportPanel = ({
   };
 
   const handleCollectionChange = (uid: string) => {
-    onCollectionChange(uid);
-    onLocaleChange(defaultLocale);
+    setImportCollection(uid);
+    setImportErrors([]);
+    setImportLocale(defaultLocale);
     setBulkLocaleUpload(false);
     resetImportState();
   };
@@ -91,6 +76,7 @@ const ImportPanel = ({
     if (!pendingFile || !importCollection || !identifierField || parsedSheets.length === 0) return;
 
     setIsImporting(true);
+    setImportErrors([]);
     setProgress({ done: 0, total: 0 });
 
     try {
@@ -105,6 +91,7 @@ const ImportPanel = ({
         parsedSheets,
         (done, total) => setProgress({ done, total })
       );
+      setImportErrors(summary.errors);
 
       const { created, updated, mediaUpdated } = summary;
       const errors = summary.errors.length;
@@ -114,7 +101,7 @@ const ImportPanel = ({
       if (errors > 0) {
         toggleNotification({
           type: "warning",
-          message: `Import completed with ${errors} error(s). ${created} created, ${updated} updated${altText}`,
+          message: `Import completed with ${errors} error(s) — see the list below. ${created} created, ${updated} updated${altText}`,
         });
       } else if (total > 0) {
         toggleNotification({
@@ -176,7 +163,7 @@ const ImportPanel = ({
               offLabel="Off"
             />
           </Box>
-          {!bulkLocaleUpload && <LocaleSelect locales={locales} value={importLocale} onChange={onLocaleChange} />}
+          {!bulkLocaleUpload && <LocaleSelect locales={locales} value={importLocale} onChange={setImportLocale} />}
           {bulkLocaleUpload && (
             <Box style={{ marginTop: "8px" }}>
               <Typography textColor="neutral500" variant="pi">
@@ -281,6 +268,7 @@ const ImportPanel = ({
           </Button>
         </Box>
       )}
+      <ImportErrors errors={importErrors} />
     </Box>
   );
 };

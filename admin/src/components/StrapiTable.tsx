@@ -78,7 +78,10 @@ const StrapiTable = ({
               </Tr>
             ) : (
               data.map((row, rowIdx) => (
-                <Tr key={row.documentId ?? row.id ?? rowIdx}>
+                // Keyed by position: an entry with repeatable items spans several rows that share its id,
+                // and duplicate keys make React leave stale rows behind when the data shrinks
+                // biome-ignore lint/suspicious/noArrayIndexKey: rows have no unique id (see above)
+                <Tr key={rowIdx}>
                   {columns.map((col) => (
                     <Td key={col}>
                       <Typography

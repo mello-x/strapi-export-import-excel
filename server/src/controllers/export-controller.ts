@@ -1,47 +1,32 @@
 import type { Core } from "@strapi/strapi";
+import { PLUGIN_ID } from "../constants";
 
 const EXCEL_CT = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 const today = () => new Date().toISOString().split("T")[0];
 const ctBase = (ct: string | undefined) => (ct as string)?.replace("api::", "").split(".")[0] || "strapi";
 
 const exportController = ({ strapi }: { strapi: Core.Strapi }) => {
-  const exportService = strapi.plugin("strapi-export-import-excel").service("export-service");
-
-  const setExcelHeaders = (ctx: any, filename: string) => {
-    ctx.set("Content-Type", EXCEL_CT);
-    ctx.set("Content-Disposition", `attachment; filename="${filename}"`);
-  };
+  const exportService = strapi.plugin(PLUGIN_ID).service("export-service");
 
   return {
     async export(ctx) {
       try {
-        const { contentType, sortOrder, locale, ...filters } = ctx.query;
-        const columnsParam = sortOrder as string | undefined;
+        const { contentType, sortOrder, locale } = ctx.query;
         const base = ctBase(contentType as string);
 
         const buffer = await exportService.exportData(
           contentType as string,
-          filters,
-          columnsParam,
+          sortOrder as string | undefined,
           locale as string | undefined
         );
-        setExcelHeaders(ctx, `${base}-export-${today()}.xlsx`);
+        ctx.set("Content-Type", EXCEL_CT);
+        ctx.set("Content-Disposition", `attachment; filename="${base}-export-${today()}.xlsx"`);
         ctx.body = buffer;
-      } catch (error) {
+      } catch (error: any) {
         strapi.log.error("Export error:", error);
-        ctx.throw(500, "Export failed");
-      }
-    },
-
-    async exportSingle(ctx) {
-      try {
-        const { contentType, id } = ctx.params;
-        const buffer = await exportService.exportSingleEntry(contentType, id);
-        setExcelHeaders(ctx, `entry-${id}-${today()}.xlsx`);
-        ctx.body = buffer;
-      } catch (error) {
-        strapi.log.error("Export single error:", error);
-        ctx.throw(500, "Export failed");
+        // Set directly, not thrown: Strapi replaces thrown 5xx messages with "Internal Server Error"
+        ctx.status = 500;
+        ctx.body = { error: `Export failed: ${error.message}` };
       }
     },
   };

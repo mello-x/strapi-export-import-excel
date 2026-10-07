@@ -1,9 +1,3 @@
-export interface ImportBatch {
-  contentType: string;
-  locale: string | null;
-  entries: any[];
-}
-
 export interface ImportResults {
   created: number;
   updated: number;
@@ -19,7 +13,6 @@ export interface ExportField {
 }
 
 export interface CollectionConfig {
-  enabled?: boolean;
   exportEnabled?: boolean;
   importEnabled?: boolean;
   exportFields?: ExportField[];
@@ -32,8 +25,11 @@ export interface PluginSettings {
 export interface SchemaFieldSets {
   customFields: string[];
   relationFields: string[];
+  /** Multiple-media fields: not exportable. Single media go to mediaAltFields instead. */
   skipFields: string[];
   mediaAltFields: string[];
+  /** Every component field (single and repeatable), in schema order. */
+  componentFields: string[];
   repeatableComponentDefs: { fieldName: string; componentUid: string }[];
   singleComponentFields: string[];
   repeatableColumns: Record<string, string[]>;

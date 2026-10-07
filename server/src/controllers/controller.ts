@@ -1,20 +1,10 @@
 import type { Core } from "@strapi/strapi";
-import { MEDIA_ALT_SUBFIELD } from "../constants";
-import type { ExportField, PluginSettings } from "../types";
-import { buildDeepPopulate, buildQuery, expandEntry, extractSchemaFieldSets, validateFilter } from "../utils/export";
-import { SYSTEM_KEYS } from "../utils/import";
-
-const STORE_KEY = "settings";
-
-const SYSTEM_KEYS_SET = new Set(SYSTEM_KEYS);
-
-const getPluginStore = (strapi: Core.Strapi) => strapi.store({ type: "plugin", name: "strapi-export-import-excel" });
+import { getPluginStore, MEDIA_ALT_SUBFIELD, STORE_KEY, SYSTEM_KEYS } from "../constants";
+import type { PluginSettings } from "../types";
+import { buildDeepPopulate } from "../utils/export/query";
+import { expandEntry, extractSchemaFieldSets, forColumns } from "../utils/export/transform";
 
 const controller = ({ strapi }: { strapi: Core.Strapi }) => ({
-  index(ctx) {
-    ctx.body = strapi.plugin("strapi-export-import-excel").service("service").getWelcomeMessage();
-  },
-
   async getSettings(ctx) {
     const stored = (await getPluginStore(strapi).get({ key: STORE_KEY })) as {
       collections: Record<string, { exportEnabled: boolean; importEnabled: boolean }>;
@@ -86,7 +76,7 @@ const controller = ({ strapi }: { strapi: Core.Strapi }) => ({
     const toLabel = (key: string) => key.replace(/([A-Z])/g, " $1").replace(/^./, (s: string) => s.toUpperCase());
 
     const fields = Object.entries(schema.attributes)
-      .filter(([key, def]: [string, any]) => !SYSTEM_KEYS_SET.has(key) && !def.customField)
+      .filter(([key, def]: [string, any]) => !SYSTEM_KEYS.has(key) && !def.customField)
       .flatMap(([key, def]: [string, any]) => {
         if (def.type !== "media") {
           return [{ key, label: toLabel(key), type: def.type }];
@@ -100,7 +90,7 @@ const controller = ({ strapi }: { strapi: Core.Strapi }) => ({
   },
 
   async getTableData(ctx) {
-    const { contentType, page = "1", limit = "10", columns, locale } = ctx.query as Record<string, string>;
+    const { contentType, page = "1", limit = "10", start, columns, locale } = ctx.query as Record<string, string>;
 
     if (!contentType) return ctx.throw(400, "contentType is required");
 
@@ -109,57 +99,32 @@ const controller = ({ strapi }: { strapi: Core.Strapi }) => ({
 
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
     const limitNum = Math.min(Math.max(1, parseInt(limit, 10) || 10), 100);
-
-    let rawEnabledFields: string[] | null = null;
-    if (!columns) {
-      const stored = (await getPluginStore(strapi).get({ key: STORE_KEY })) as PluginSettings | null;
-      const exportFields: ExportField[] = stored?.collections?.[contentType]?.exportFields ?? [];
-      if (exportFields.length > 0) {
-        rawEnabledFields = exportFields
-          .filter((exportField) => exportField.enabled)
-          .map((exportField) => exportField.key);
-      }
-    }
+    // `start` (entry offset) lets the admin download page with a varying `limit`
+    const startNum = Math.max(0, parseInt(start, 10) || (pageNum - 1) * limitNum);
 
     const isLocalized = schema.pluginOptions?.i18n?.localized ?? false;
     const localeParam = isLocalized && locale ? { locale } : {};
 
-    const validatedFilters = validateFilter({}, schema.attributes);
-    const deepPopulate = buildDeepPopulate(strapi, contentType);
-    const query = buildQuery(validatedFilters, limitNum, (pageNum - 1) * limitNum, deepPopulate);
-
     const [entries, total] = await Promise.all([
       strapi.documents(contentType as any).findMany({
-        ...query,
+        populate: buildDeepPopulate(strapi, contentType),
+        sort: "id:asc",
+        limit: limitNum,
+        start: startNum,
         ...localeParam,
       }),
       strapi.documents(contentType as any).count({ ...localeParam }),
     ]);
 
-    const fieldSets = extractSchemaFieldSets(schema.attributes, strapi);
-    const expandedRows = (entries ?? []).flatMap((entry) => expandEntry(entry, fieldSets, SYSTEM_KEYS_SET, strapi));
-
-    let cols: string[];
-    if (columns) {
-      cols = columns
-        .split(",")
-        .map((c) => c.trim())
-        .filter(Boolean);
-    } else if (rawEnabledFields) {
-      const allFlatKeys = expandedRows.length > 0 ? Object.keys(expandedRows[0]) : [];
-      cols = [];
-      for (const raw of rawEnabledFields) {
-        if (fieldSets.repeatableColumns[raw]) {
-          cols.push(...fieldSets.repeatableColumns[raw]);
-        } else {
-          const matching = allFlatKeys.filter((flatKey) => flatKey === raw || flatKey.startsWith(`${raw}_`));
-          cols.push(...matching);
-        }
-      }
-      if (cols.length === 0) cols = allFlatKeys;
-    } else {
-      cols = expandedRows.length > 0 ? Object.keys(expandedRows[0]) : [];
-    }
+    const requested = columns
+      ? columns
+          .split(",")
+          .map((c) => c.trim())
+          .filter(Boolean)
+      : undefined;
+    const fieldSets = forColumns(extractSchemaFieldSets(schema.attributes, strapi), requested);
+    const expandedRows = (entries ?? []).flatMap((entry) => expandEntry(entry, fieldSets, strapi));
+    const cols = requested ?? Object.keys(expandedRows[0] ?? {});
 
     const resultData = expandedRows.map((row) => {
       const filtered: Record<string, any> = {};

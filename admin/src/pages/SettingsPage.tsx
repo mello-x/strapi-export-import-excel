@@ -2,13 +2,7 @@ import { Box, Button, Flex, Main, Table, Tbody, Td, Th, Thead, Toggle, Tr, Typog
 import { useNotification, useRBAC } from "@strapi/strapi/admin";
 import { useEffect, useState } from "react";
 import { PLUGIN_ID } from "../pluginId";
-
-interface Collection {
-  uid: string;
-  displayName: string;
-  exportEnabled: boolean;
-  importEnabled: boolean;
-}
+import { type Collection, responseError } from "../shared";
 
 const PERMISSIONS = [{ action: `plugin::${PLUGIN_ID}.settings.read`, subject: null }];
 
@@ -20,18 +14,9 @@ const SettingsPage = () => {
   const { toggleNotification } = useNotification();
 
   useEffect(() => {
-    fetch("/api/strapi-export-import-excel/collections")
+    fetch(`/api/${PLUGIN_ID}/collections`)
       .then((r) => r.json())
-      .then((data) => {
-        setCollections(
-          (data.collections ?? []).map((c: any) => ({
-            uid: c.uid,
-            displayName: c.displayName,
-            exportEnabled: c.exportEnabled ?? true,
-            importEnabled: c.importEnabled ?? true,
-          }))
-        );
-      })
+      .then((data) => setCollections(data.collections ?? []))
       .catch(() => toggleNotification({ type: "danger", message: "Failed to load collections" }))
       .finally(() => setIsLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -47,15 +32,15 @@ const SettingsPage = () => {
       const body = Object.fromEntries(
         collections.map(({ uid, exportEnabled, importEnabled }) => [uid, { exportEnabled, importEnabled }])
       );
-      const response = await fetch("/api/strapi-export-import-excel/settings", {
+      const response = await fetch(`/api/${PLUGIN_ID}/settings`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ collections: body }),
       });
-      if (!response.ok) throw new Error("Save failed");
+      if (!response.ok) throw new Error(await responseError(response));
       toggleNotification({ type: "success", message: "Settings saved" });
-    } catch {
-      toggleNotification({ type: "danger", message: "Failed to save settings" });
+    } catch (error: any) {
+      toggleNotification({ type: "danger", message: `Failed to save settings: ${error.message}` });
     } finally {
       setIsSaving(false);
     }

@@ -1,88 +1,10 @@
 import type { Core } from "@strapi/strapi";
-import * as XLSX from "xlsx";
-import {
-  cleanSheetRows,
-  cleanupFile,
-  getFileInfo,
-  type ImportResults,
-  mergeResults,
-  sheetToJson,
-} from "../utils/import";
+import { PLUGIN_ID } from "../constants";
+import type { ImportResults } from "../types";
+import { describeError, mergeResults } from "../utils/import/compare";
+import { cleanSheetRows } from "../utils/import/file";
 
 const nestedImportService = ({ strapi }: { strapi: Core.Strapi }) => ({
-  async importComponentData(
-    file: any,
-    contentType: string,
-    componentField: string,
-    identifierField: string,
-    locale: string | null = null,
-    bulkLocaleUpload = false,
-    publishOnImport = true
-  ) {
-    const { fileExtension, filePath } = getFileInfo(file);
-
-    if (fileExtension !== "xlsx" && fileExtension !== "xls") {
-      throw new Error("Component import only supports Excel files");
-    }
-
-    const attributes = strapi.contentTypes[contentType]?.attributes;
-    if (!attributes) throw new Error(`Content type ${contentType} not found`);
-
-    const componentDef = attributes[componentField] as any;
-    if (componentDef?.type !== "component" || !componentDef.repeatable) {
-      throw new Error(`"${componentField}" is not a repeatable component field on ${contentType}`);
-    }
-
-    const componentUid = componentDef.component;
-    const results: ImportResults = { created: 0, updated: 0, skipped: 0, mediaUpdated: 0, errors: [] };
-
-    try {
-      const workbook = XLSX.readFile(filePath);
-
-      if (bulkLocaleUpload) {
-        for (const sheetName of workbook.SheetNames) {
-          const sheet = workbook.Sheets[sheetName];
-          const rows: Record<string, any>[] = sheetToJson(sheet);
-          if (!rows.length) continue;
-
-          const sheetResult = await this.importComponentSheet(
-            rows,
-            contentType,
-            componentField,
-            componentUid,
-            identifierField,
-            sheetName,
-            publishOnImport
-          );
-          mergeResults(results, sheetResult);
-        }
-      } else {
-        const sheet = workbook.Sheets[workbook.SheetNames[0]];
-        const rows: Record<string, any>[] = sheetToJson(sheet);
-
-        if (!rows.length) {
-          results.errors.push("No data found in file");
-          return results;
-        }
-
-        const sheetResult = await this.importComponentSheet(
-          rows,
-          contentType,
-          componentField,
-          componentUid,
-          identifierField,
-          locale,
-          publishOnImport
-        );
-        mergeResults(results, sheetResult);
-      }
-    } finally {
-      cleanupFile(filePath);
-    }
-
-    return results;
-  },
-
   /**
    * Import a single batch of already-parsed component rows (header→value objects)
    * for one locale, as sent by the admin UI's client-driven chunked nested import.
@@ -161,7 +83,7 @@ const nestedImportService = ({ strapi }: { strapi: Core.Strapi }) => ({
     const localeParam = isLocalized && locale ? { locale } : {};
     const statusParam = publishOnImport ? { status: "published" as const } : {};
 
-    const importService = strapi.plugin("strapi-export-import-excel").service("import-service");
+    const importService = strapi.plugin(PLUGIN_ID).service("import-service");
 
     await strapi.db.transaction(async ({ onRollback }) => {
       onRollback(() => {
@@ -206,10 +128,12 @@ const nestedImportService = ({ strapi }: { strapi: Core.Strapi }) => ({
 
           results.updated++;
         } catch (err: any) {
-          results.errors.push(`Failed for ${identifierField}="${identifierValue}": ${err.message}`);
+          const message = `Failed for ${identifierField}="${identifierValue}": ${describeError(err)}`;
+          results.errors.push(message);
           results.created = 0;
           results.updated = 0;
-          throw err;
+          // The batch caller only sees this rethrown error, so carry the detailed message.
+          throw new Error(message);
         }
       }
     });

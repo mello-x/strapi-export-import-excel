@@ -3,12 +3,6 @@ export default () => ({
   routes: [
     {
       method: "GET",
-      path: "/",
-      handler: "controller.index",
-      config: { auth: false, policies: [] },
-    },
-    {
-      method: "GET",
       path: "/settings",
       handler: "controller.getSettings",
       config: { auth: false, policies: [] },
@@ -47,30 +41,6 @@ export default () => ({
       method: "GET",
       path: "/export",
       handler: "export-controller.export",
-      config: { auth: false, policies: [] },
-    },
-    {
-      method: "GET",
-      path: "/export/:contentType/:id",
-      handler: "export-controller.exportSingle",
-      config: { auth: false, policies: [] },
-    },
-    {
-      method: "POST",
-      path: "/import-headers",
-      handler: "import-controller.getImportHeaders",
-      config: { auth: false, policies: [] },
-    },
-    {
-      method: "POST",
-      path: "/import",
-      handler: "import-controller.import",
-      config: { auth: false, policies: [] },
-    },
-    {
-      method: "POST",
-      path: "/import-component",
-      handler: "import-controller.importComponent",
       config: { auth: false, policies: [] },
     },
     {

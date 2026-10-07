@@ -11,11 +11,7 @@ export default {
         id: `${PLUGIN_ID}.plugin.name`,
         defaultMessage: "Export / Import",
       },
-      Component: async () => {
-        const { App } = await import("./pages/App");
-
-        return App;
-      },
+      Component: () => import("./pages/App").then((mod) => ({ default: mod.App })),
     });
 
     app.createSettingSection(
@@ -28,10 +24,7 @@ export default {
           intlLabel: { id: `${PLUGIN_ID}.settings.collections`, defaultMessage: "Collections" },
           id: `${PLUGIN_ID}.collections`,
           to: `/settings/${PLUGIN_ID}`,
-          Component: async () => {
-            const { SettingsPage } = await import("./pages/SettingsPage");
-            return SettingsPage;
-          },
+          Component: () => import("./pages/SettingsPage").then((mod) => ({ default: mod.SettingsPage })),
           permissions: [{ action: `plugin::${PLUGIN_ID}.settings.read`, subject: null }],
         },
       ]

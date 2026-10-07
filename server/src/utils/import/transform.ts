@@ -1,9 +1,5 @@
 import { MEDIA_ALT_SUBFIELD } from "../../constants";
 
-export function toCamel(str: string): string {
-  return str.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
-}
-
 export function parseJsonIfNeeded(value: any): any {
   if (typeof value !== "string") return value;
   const trimmed = value.trim();
@@ -25,20 +21,6 @@ export function setNestedPath(obj: Record<string, any>, path: string, value: any
     if (!obj[key] || typeof obj[key] !== "object") obj[key] = {};
     setNestedPath(obj[key], rest, value);
   }
-}
-
-export function getRelationFieldDefs(
-  attributes: Record<string, any>
-): { field: string; target: string; relation: string }[] {
-  return Object.entries<any>(attributes)
-    .filter(([, attr]) => attr.type === "relation")
-    .map(([fieldName, attr]) => ({ field: toCamel(fieldName), target: attr.target, relation: attr.relation }));
-}
-
-export function getComponentFieldNames(attributes: Record<string, any>): string[] {
-  return Object.entries<any>(attributes)
-    .filter(([, attr]) => attr.type === "component")
-    .map(([fieldName]) => toCamel(fieldName));
 }
 
 export function mergeComponentData(
@@ -85,13 +67,6 @@ export function mergeComponentData(
  * `strapi.documents().update()` — that would be read as "which file to link".
  */
 export const MEDIA_ALT_KEY = "__mediaAlt";
-
-/** Single (non-multiple) media fields, whose file alt text is editable from a sheet. */
-export function getMediaAltFieldNames(attributes: Record<string, any>): string[] {
-  return Object.entries<any>(attributes)
-    .filter(([, attr]) => attr.type === "media" && !attr.multiple)
-    .map(([fieldName]) => fieldName);
-}
 
 /**
  * Resolves a column header to the media field whose alt text it targets,

@@ -2,17 +2,13 @@ import { Box, Button, Flex, SingleSelect, SingleSelectOption, Toggle, Typography
 import { Upload } from "@strapi/icons";
 import { useNotification } from "@strapi/strapi/admin";
 import { useEffect, useRef, useState } from "react";
+import { PLUGIN_ID } from "../pluginId";
+import { type Collection, PANEL_STYLE } from "../shared";
 import { runComponentImport } from "../utils/importClient";
 import { type ParsedSheet, parseWorkbook } from "../utils/parseWorkbook";
+import { ImportErrors } from "./ImportErrors";
 import type { Locale } from "./LocaleSelect";
 import { LocaleSelect } from "./LocaleSelect";
-
-interface Collection {
-  uid: string;
-  displayName: string;
-  isLocalized: boolean;
-  importEnabled?: boolean;
-}
 
 interface FieldDef {
   key: string;
@@ -26,8 +22,6 @@ interface NestedImportPanelProps {
   defaultLocale: string;
 }
 
-const PANEL_STYLE = { border: "1px solid #E3E3E8", borderRadius: "8px", padding: "28px" };
-
 const NestedImportPanel = ({ collections, locales, defaultLocale }: NestedImportPanelProps) => {
   const [collection, setCollection] = useState("");
   const [locale, setLocale] = useState(defaultLocale);
@@ -39,6 +33,7 @@ const NestedImportPanel = ({ collections, locales, defaultLocale }: NestedImport
   const [parsedSheets, setParsedSheets] = useState<ParsedSheet[]>([]);
   const [isParsing, setIsParsing] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const [importErrors, setImportErrors] = useState<string[]>([]);
   const [bulkLocaleUpload, setBulkLocaleUpload] = useState(false);
   const { toggleNotification } = useNotification();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -81,7 +76,7 @@ const NestedImportPanel = ({ collections, locales, defaultLocale }: NestedImport
       return;
     }
 
-    fetch(`/api/strapi-export-import-excel/collections/${encodeURIComponent(collection)}/fields`)
+    fetch(`/api/${PLUGIN_ID}/collections/${encodeURIComponent(collection)}/fields`)
       .then((res) => res.json())
       .then((data) => setFields(data.fields ?? []))
       .catch(() => setFields([]));
@@ -98,6 +93,7 @@ const NestedImportPanel = ({ collections, locales, defaultLocale }: NestedImport
     if (!pendingFile || !collection || !componentField || !identifierField || parsedSheets.length === 0) return;
 
     setIsImporting(true);
+    setImportErrors([]);
     setProgress({ done: 0, total: 0 });
 
     try {
@@ -114,6 +110,7 @@ const NestedImportPanel = ({ collections, locales, defaultLocale }: NestedImport
         parsedSheets,
         (done, total) => setProgress({ done, total })
       );
+      setImportErrors(summary.errors);
 
       const { updated, skipped } = summary;
       const errors = summary.errors.length;
@@ -121,7 +118,7 @@ const NestedImportPanel = ({ collections, locales, defaultLocale }: NestedImport
       if (errors > 0) {
         toggleNotification({
           type: "warning",
-          message: `Component import completed with ${errors} error(s). ${updated} updated, ${skipped} skipped.`,
+          message: `Component import completed with ${errors} error(s) — see the list below. ${updated} updated, ${skipped} skipped.`,
         });
       } else if (updated > 0) {
         toggleNotification({
@@ -287,6 +284,7 @@ const NestedImportPanel = ({ collections, locales, defaultLocale }: NestedImport
           )}
         </Box>
       )}
+      <ImportErrors errors={importErrors} />
     </Box>
   );
 };
