@@ -1,37 +1,20 @@
 import { Box, Button, Flex, SingleSelect, SingleSelectOption, Typography } from "@strapi/design-system";
 import { Download } from "@strapi/icons";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { type Collection, PANEL_STYLE } from "../shared";
 import type { Locale } from "./LocaleSelect";
 import { LocaleSelect } from "./LocaleSelect";
-
-interface Collection {
-  uid: string;
-  displayName: string;
-  isLocalized: boolean;
-  exportEnabled?: boolean;
-}
 
 interface ExportPanelProps {
   collections: Collection[];
   locales: Locale[];
-  exportCollection: string;
-  exportLocale: string;
   defaultLocale: string;
-  onCollectionChange: (uid: string) => void;
-  onLocaleChange: (locale: string) => void;
 }
 
-const PANEL_STYLE = { border: "1px solid #E3E3E8", borderRadius: "8px", padding: "28px" };
-
-const ExportPanel = ({
-  collections,
-  locales,
-  exportCollection,
-  exportLocale,
-  defaultLocale,
-  onCollectionChange,
-  onLocaleChange,
-}: ExportPanelProps) => {
+const ExportPanel = ({ collections, locales, defaultLocale }: ExportPanelProps) => {
+  const [exportCollection, setExportCollection] = useState("");
+  const [exportLocale, setExportLocale] = useState(defaultLocale);
   const navigate = useNavigate();
 
   const exportIsLocalized = collections.find((c) => c.uid === exportCollection)?.isLocalized ?? false;
@@ -62,8 +45,8 @@ const ExportPanel = ({
       <SingleSelect
         value={exportCollection}
         onChange={(val: string | number) => {
-          onCollectionChange(String(val));
-          onLocaleChange(defaultLocale);
+          setExportCollection(String(val));
+          setExportLocale(defaultLocale);
         }}
         placeholder="Select collection..."
       >
@@ -77,7 +60,7 @@ const ExportPanel = ({
       </SingleSelect>
 
       {exportIsLocalized && locales.length > 0 && (
-        <LocaleSelect locales={locales} value={exportLocale} onChange={onLocaleChange} />
+        <LocaleSelect locales={locales} value={exportLocale} onChange={setExportLocale} />
       )}
 
       <Box style={{ marginTop: "20px" }}>

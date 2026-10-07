@@ -9,12 +9,21 @@ export function mergeResults(target: ImportResults, source: ImportResults): void
   target.errors = target.errors.concat(source.errors);
 }
 
+/** Strapi ValidationErrors list per-field details; their err.message is often just "2 errors occurred". */
+export function describeError(err: any): string {
+  const details = err?.details?.errors;
+  if (Array.isArray(details) && details.length > 0) {
+    return details.map((e: any) => `${(e.path ?? []).join(".")}: ${e.message}`).join("; ");
+  }
+  return err?.message || JSON.stringify(err);
+}
+
 export function hasChanges(existing: Record<string, any>, incoming: Record<string, any>): boolean {
   if (!incoming || typeof incoming !== "object") return false;
   if (!existing || typeof existing !== "object") return true;
 
   for (const key of Object.keys(incoming)) {
-    if (SYSTEM_KEYS.includes(key)) continue;
+    if (SYSTEM_KEYS.has(key)) continue;
     const newVal = incoming[key];
     const oldVal = existing[key];
 

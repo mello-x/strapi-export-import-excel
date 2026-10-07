@@ -1,4 +1,5 @@
 import type { Core } from "@strapi/strapi";
+import { PLUGIN_ID } from "./constants";
 
 const register = ({ strapi }: { strapi: Core.Strapi }) => {
   strapi.admin.services.permission.actionProvider.registerMany([
@@ -6,7 +7,7 @@ const register = ({ strapi }: { strapi: Core.Strapi }) => {
       section: "plugins",
       displayName: "Access Settings",
       uid: "settings.read",
-      pluginName: "strapi-export-import-excel",
+      pluginName: PLUGIN_ID,
     },
   ]);
 };

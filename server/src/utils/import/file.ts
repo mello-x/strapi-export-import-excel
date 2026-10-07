@@ -1,23 +1,3 @@
-import * as fs from "node:fs";
-import * as XLSX from "xlsx";
-
-export function getFileInfo(
-  file: any,
-  defaultName = "unknown.xlsx"
-): { fileName: string; fileExtension: string; filePath: string } {
-  const fileName = file.name || file.originalFilename || defaultName;
-  const fileExtension = fileName.split(".").pop().toLowerCase();
-  const filePath = file.path || file.filepath;
-  if (!filePath) throw new Error("File path not found");
-  return { fileName, fileExtension, filePath };
-}
-
-export function cleanupFile(filePath: string): void {
-  if (filePath && fs.existsSync(filePath)) {
-    fs.unlinkSync(filePath);
-  }
-}
-
 export function cleanSheetRows(rows: Record<string, any>[]): Record<string, any>[] {
   if (!rows.length) return rows;
 
@@ -35,8 +15,4 @@ export function cleanSheetRows(rows: Record<string, any>[]): Record<string, any>
     result.push(trimmed);
   }
   return result;
-}
-
-export function sheetToJson(sheet: XLSX.WorkSheet): Record<string, any>[] {
-  return cleanSheetRows(XLSX.utils.sheet_to_json<Record<string, any>>(sheet));
 }

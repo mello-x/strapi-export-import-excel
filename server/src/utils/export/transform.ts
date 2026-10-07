@@ -1,4 +1,4 @@
-import { COMPONENT_STRIP_KEYS, MEDIA_ALT_SUBFIELD, SHORTCUT_FIELDS } from "../../constants";
+import { COMPONENT_STRIP_KEYS, MEDIA_ALT_SUBFIELD, SHORTCUT_FIELDS, SYSTEM_KEYS } from "../../constants";
 import type { SchemaFieldSets } from "../../types";
 
 export function resolveRelationForExport(relationValue: any): string | null {
@@ -96,56 +96,43 @@ export function flattenSingleComponent(obj: any, prefix: string): Record<string,
 }
 
 export function extractSchemaFieldSets(attributes: Record<string, any>, strapi: any): SchemaFieldSets {
-  const customFields = Object.entries<any>(attributes)
-    .filter(([, fieldDef]) => fieldDef.customField)
-    .map(([fieldName]) => fieldName);
-  const relationFields = Object.entries<any>(attributes)
-    .filter(([, fieldDef]) => fieldDef.type === "relation")
-    .map(([fieldName]) => fieldName);
-  const skipFields = Object.entries<any>(attributes)
-    .filter(([, fieldDef]) => fieldDef.type === "media")
-    .map(([fieldName]) => fieldName);
+  const sets: SchemaFieldSets = {
+    customFields: [],
+    relationFields: [],
+    skipFields: [],
+    mediaAltFields: [],
+    componentFields: [],
+    repeatableComponentDefs: [],
+    singleComponentFields: [],
+    repeatableColumns: {},
+  };
 
-  const mediaAltFields = Object.entries<any>(attributes)
-    .filter(([, fieldDef]) => fieldDef.type === "media" && !fieldDef.multiple)
-    .map(([fieldName]) => fieldName);
-  const repeatableComponentDefs = Object.entries<any>(attributes)
-    .filter(([, fieldDef]) => fieldDef.type === "component" && fieldDef.repeatable)
-    .map(([fieldName, fieldDef]) => ({ fieldName, componentUid: fieldDef.component }));
-  const singleComponentFields = Object.entries<any>(attributes)
-    .filter(([, fieldDef]) => fieldDef.type === "component" && !fieldDef.repeatable)
-    .map(([fieldName]) => fieldName);
+  for (const [fieldName, fieldDef] of Object.entries<any>(attributes)) {
+    if (fieldDef.customField) sets.customFields.push(fieldName);
+    if (fieldDef.type === "relation") sets.relationFields.push(fieldName);
+    if (fieldDef.type === "media") (fieldDef.multiple ? sets.skipFields : sets.mediaAltFields).push(fieldName);
+    if (fieldDef.type !== "component") continue;
 
-  const repeatableColumns: Record<string, string[]> = {};
-  for (const { fieldName, componentUid } of repeatableComponentDefs) {
-    repeatableColumns[fieldName] = getRepeatableComponentColumns(fieldName, componentUid, strapi);
+    sets.componentFields.push(fieldName);
+    if (fieldDef.repeatable) {
+      sets.repeatableComponentDefs.push({ fieldName, componentUid: fieldDef.component });
+      sets.repeatableColumns[fieldName] = getRepeatableComponentColumns(fieldName, fieldDef.component, strapi);
+    } else {
+      sets.singleComponentFields.push(fieldName);
+    }
   }
 
-  return {
-    customFields,
-    relationFields,
-    skipFields,
-    mediaAltFields,
-    repeatableComponentDefs,
-    singleComponentFields,
-    repeatableColumns,
-  };
+  return sets;
 }
 
-export function buildFlatFields(
-  entry: any,
-  fieldSets: SchemaFieldSets,
-  systemKeys: Set<string> | string[]
-): Record<string, any> {
-  const isSystemKey =
-    systemKeys instanceof Set ? (k: string) => systemKeys.has(k) : (k: string) => systemKeys.includes(k);
+export function buildFlatFields(entry: any, fieldSets: SchemaFieldSets): Record<string, any> {
   const { customFields, relationFields, skipFields, mediaAltFields, repeatableComponentDefs, singleComponentFields } =
     fieldSets;
   const result: Record<string, any> = {};
 
   for (const fieldName in entry) {
     const fieldValue = entry[fieldName];
-    if (isSystemKey(fieldName)) continue;
+    if (SYSTEM_KEYS.has(fieldName)) continue;
     if (customFields.includes(fieldName)) continue;
     if (mediaAltFields.includes(fieldName)) {
       result[`${fieldName}.${MEDIA_ALT_SUBFIELD}`] = fieldValue?.[MEDIA_ALT_SUBFIELD] ?? null;
@@ -188,13 +175,23 @@ export function buildFlatFields(
   return result;
 }
 
-export function expandEntry(
-  entry: any,
-  fieldSets: SchemaFieldSets,
-  systemKeys: Set<string> | string[],
-  strapi: any
-): Record<string, any>[] {
-  const flatFields = flattenForXLSX(buildFlatFields(entry, fieldSets, systemKeys));
+/**
+ * Keep only the repeatable components that have a column in `columns`, so an entry is
+ * split into several rows only for repeatables that are actually exported. Otherwise
+ * the excluded ones yield identical rows once projected to `columns`.
+ */
+export function forColumns(fieldSets: SchemaFieldSets, columns?: string[]): SchemaFieldSets {
+  if (!columns) return fieldSets;
+  return {
+    ...fieldSets,
+    repeatableComponentDefs: fieldSets.repeatableComponentDefs.filter(({ fieldName }) =>
+      fieldSets.repeatableColumns[fieldName]?.some((col) => columns.includes(col))
+    ),
+  };
+}
+
+export function expandEntry(entry: any, fieldSets: SchemaFieldSets, strapi: any): Record<string, any>[] {
+  const flatFields = flattenForXLSX(buildFlatFields(entry, fieldSets));
   const { repeatableComponentDefs, repeatableColumns } = fieldSets;
 
   if (repeatableComponentDefs.length === 0) {

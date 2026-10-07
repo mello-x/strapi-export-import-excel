@@ -1,14 +1,5 @@
 import type { Core } from "@strapi/strapi";
-
-const PLUGIN_ID = "strapi-export-import-excel";
-
-function extractFile(ctx: any): any {
-  const { files } = ctx.request as any;
-  if (!files?.file) {
-    ctx.throw(400, "No file provided");
-  }
-  return Array.isArray(files.file) ? files.file[0] : files.file;
-}
+import { PLUGIN_ID } from "../constants";
 
 function buildImportResponse(result: any): { message: string; result: any; summary: any } {
   const hasErrors = result.errors?.length > 0;
@@ -28,8 +19,12 @@ function buildImportResponse(result: any): { message: string; result: any; summa
 }
 
 function handleError(ctx: any, strapi: Core.Strapi, label: string, error: any): void {
+  // ctx.throw() errors (4xx validation) keep their own status and message
+  if (error.expose) throw error;
   strapi.log.error(`${label}:`, error);
-  ctx.body = { error: error.message, details: error.stack };
+  // Set directly, not thrown: Strapi replaces thrown 5xx messages with "Internal Server Error".
+  // No stack in the body; it's in the server log.
+  ctx.body = { error: error.message };
   ctx.status = 500;
 }
 
@@ -40,72 +35,12 @@ const asBool = (value: any, fallback = false): boolean => {
 };
 
 const importController = ({ strapi }: { strapi: Core.Strapi }) => ({
-  async getImportHeaders(ctx) {
-    try {
-      const file = extractFile(ctx);
-      const importService = strapi.plugin(PLUGIN_ID).service("import-service");
-      ctx.body = { headers: await importService.getFileHeaders(file) };
-    } catch (error) {
-      handleError(ctx, strapi, "Get import headers error", error);
-    }
-  },
-
-  // Whole-file import (multipart). Kept for direct/programmatic API use. The admin
-  // UI imports in batches via `importBatch` to avoid reverse-proxy timeouts.
-  async import(ctx) {
-    try {
-      const file = extractFile(ctx);
-      const { body } = ctx.request as any;
-
-      const importService = strapi.plugin(PLUGIN_ID).service("import-service");
-      const result = await importService.importData(
-        file,
-        body.contentType,
-        body.locale || null,
-        body.identifierField || null,
-        body.bulkLocaleUpload === "true",
-        body.publishOnImport === "true"
-      );
-
-      ctx.body = buildImportResponse(result);
-    } catch (error) {
-      handleError(ctx, strapi, "Import error", error);
-    }
-  },
-
-  // Whole-file nested/component import (multipart). Kept for direct/programmatic
-  // API use; the admin UI uses `importComponentBatch`.
-  async importComponent(ctx) {
-    try {
-      const file = extractFile(ctx);
-      const { body } = ctx.request as any;
-
-      if (!body.contentType || !body.componentField || !body.identifierField) {
-        return ctx.throw(400, "contentType, componentField, and identifierField are required");
-      }
-
-      const nestedImportService = strapi.plugin(PLUGIN_ID).service("nested-import-service");
-      const result = await nestedImportService.importComponentData(
-        file,
-        body.contentType,
-        body.componentField,
-        body.identifierField,
-        body.locale || null,
-        body.bulkLocaleUpload === "true"
-      );
-
-      ctx.body = buildImportResponse(result);
-    } catch (error) {
-      handleError(ctx, strapi, "Component import error", error);
-    }
-  },
-
   // Stateless batch import: the admin UI parses the Excel in the browser and posts
   // rows in small chunks (JSON). Each request fully completes on its own, so a
   // large import can never be killed by a reverse-proxy / load-balancer timeout.
   async importBatch(ctx) {
     try {
-      const { rows, contentType, locale, identifierField, publishOnImport } = (ctx.request as any).body ?? {};
+      const { rows, contentType, locale, identifierField, publishOnImport, startRow } = (ctx.request as any).body ?? {};
 
       if (!contentType) return ctx.throw(400, "contentType is required");
       if (!Array.isArray(rows)) return ctx.throw(400, "rows must be an array");
@@ -116,7 +51,8 @@ const importController = ({ strapi }: { strapi: Core.Strapi }) => ({
         contentType,
         locale || null,
         identifierField || null,
-        asBool(publishOnImport)
+        asBool(publishOnImport),
+        Number(startRow) || 2
       );
 
       ctx.body = buildImportResponse(result);

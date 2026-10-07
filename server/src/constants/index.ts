@@ -1,4 +1,12 @@
-export const SYSTEM_KEYS = [
+import type { Core } from "@strapi/strapi";
+
+export const PLUGIN_ID = "strapi-export-import-excel";
+
+export const STORE_KEY = "settings";
+
+export const getPluginStore = (strapi: Core.Strapi) => strapi.store({ type: "plugin", name: PLUGIN_ID });
+
+export const SYSTEM_KEYS = new Set([
   "documentId",
   "locale",
   "createdAt",
@@ -8,7 +16,7 @@ export const SYSTEM_KEYS = [
   "updatedBy",
   "localizations",
   "status",
-];
+]);
 
 export const SHORTCUT_FIELDS = ["name", "title"];
 

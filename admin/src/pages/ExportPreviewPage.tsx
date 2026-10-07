@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { ColumnSorter } from "../components/ColumnSorter";
 import { StrapiTable } from "../components/StrapiTable";
+import { PLUGIN_ID } from "../pluginId";
+import { nextBatchSize, responseError } from "../shared";
 
 const ExportPreviewPage = () => {
   const { uid } = useParams<{ uid: string }>();
@@ -19,6 +21,7 @@ const ExportPreviewPage = () => {
   const [totalRows, setTotalRows] = useState(0);
   const [loading, setLoading] = useState(true);
   const [isDownloading, setIsDownloading] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState<{ done: number; total: number } | null>(null);
 
   const contentType = uid ? decodeURIComponent(uid) : null;
   const baseName = contentType?.replace("api::", "").split(".")[0] ?? "";
@@ -28,7 +31,7 @@ const ExportPreviewPage = () => {
   const notifyRef = useRef(toggleNotification);
   notifyRef.current = toggleNotification;
 
-  // Used for pagination — called from event handlers, not effects
+  // Returns the response data (or undefined on error) so the initial load can read `columns`
   const loadPage = async (cols: string[], page: number, limit: number, ct: string, loc: string | null) => {
     setLoading(true);
     try {
@@ -36,12 +39,13 @@ const ExportPreviewPage = () => {
       if (cols.length > 0) params.set("columns", cols.join(","));
       if (loc) params.set("locale", loc);
 
-      const res = await fetch(`/api/strapi-export-import-excel/tabledata?${params}`);
-      if (!res.ok) throw new Error("Failed to fetch table data");
+      const res = await fetch(`/api/${PLUGIN_ID}/tabledata?${params}`);
+      if (!res.ok) throw new Error(await responseError(res));
 
       const data = await res.json();
       setTableData(data.data ?? []);
       setTotalRows(data.total ?? 0);
+      return data;
     } catch (error: any) {
       notifyRef.current({ type: "danger", message: `Failed to load data: ${error.message}` });
     } finally {
@@ -49,14 +53,14 @@ const ExportPreviewPage = () => {
     }
   };
 
-  // Initial load — fetchData is defined inside so linter has no complaints
+  // biome-ignore lint/correctness/useExhaustiveDependencies: loadPage only touches setters and notifyRef
   useEffect(() => {
     if (!contentType) return;
 
     const init = async () => {
       let initialCols: string[] = [];
       try {
-        const res = await fetch("/api/strapi-export-import-excel/settings");
+        const res = await fetch(`/api/${PLUGIN_ID}/settings`);
         const data = await res.json();
         const colSettings = data.collections?.[contentType];
         if (colSettings?.exportFields) {
@@ -71,67 +75,66 @@ const ExportPreviewPage = () => {
       setAllColumns(initialCols);
       setColumns(initialCols);
 
-      // Fetch initial table data
-      setLoading(true);
-      try {
-        const params = new URLSearchParams({ contentType, page: "1", limit: "10" });
-        if (initialCols.length > 0) params.set("columns", initialCols.join(","));
-        if (locale) params.set("locale", locale);
-
-        const res = await fetch(`/api/strapi-export-import-excel/tabledata?${params}`);
-        if (!res.ok) throw new Error("Failed to fetch table data");
-
-        const data = await res.json();
-        setTableData(data.data ?? []);
-        setTotalRows(data.total ?? 0);
-
-        if (initialCols.length === 0 && data.columns?.length > 0) {
-          setAllColumns(data.columns);
-          setColumns(data.columns);
-        }
-      } catch (error: any) {
-        notifyRef.current({ type: "danger", message: `Failed to load data: ${error.message}` });
-      } finally {
-        setLoading(false);
+      const data = await loadPage(initialCols, 1, 10, contentType, locale);
+      if (initialCols.length === 0 && data?.columns?.length > 0) {
+        setAllColumns(data.columns);
+        setColumns(data.columns);
       }
     };
 
     init();
   }, [contentType, locale]); // locale is stable (from URL), safe to include
 
+  // Removing or restoring a column refetches: which repeatable columns are present decides
+  // how many rows each entry spans, so hiding them client-side would leave duplicate rows.
+  // Reordering keeps the same rows, so it doesn't refetch.
+  const changeColumns = (next: string[]) => {
+    setColumns(next);
+    if (contentType) loadPage(next, currentPage, perPage, contentType, locale);
+  };
+
   const handleDownload = async () => {
     if (!contentType) return;
     setIsDownloading(true);
     try {
-      const params = new URLSearchParams({ format: "excel", contentType });
-      if (columns.length > 0) params.set("sortOrder", columns.join(","));
-      if (locale) params.set("locale", locale);
+      // Page through /tabledata and build the file in the browser: one big /export request
+      // would load every entry at once and can exceed a short proxy timeout.
+      let cols = columns;
+      const rows: Record<string, any>[] = [];
+      let start = 0;
+      let limit = 10;
+      let total = Infinity;
+      while (start < total) {
+        const params = new URLSearchParams({ contentType, start: String(start), limit: String(limit) });
+        if (cols.length > 0) params.set("columns", cols.join(","));
+        if (locale) params.set("locale", locale);
 
-      const filterSearch = new URLSearchParams(location.search);
-      for (const [key, value] of filterSearch.entries()) {
-        if (!["format", "contentType", "columns", "locale"].includes(key)) {
-          params.set(key, value);
-        }
+        const began = performance.now();
+        const res = await fetch(`/api/${PLUGIN_ID}/tabledata?${params}`);
+        if (!res.ok) throw new Error(`Entries ${start + 1}–${start + limit}: ${await responseError(res)}`);
+        const data = await res.json();
+
+        // Pin the columns from the first page so every page has the same shape
+        if (cols.length === 0) cols = data.columns ?? [];
+        rows.push(...(data.data ?? []));
+        total = data.total ?? 0;
+        start += limit;
+        limit = nextBatchSize(limit, performance.now() - began, 100);
+        setDownloadProgress({ done: Math.min(start, total), total });
       }
 
-      const response = await fetch(`/api/strapi-export-import-excel/export?${params}`);
-      if (!response.ok) throw new Error("Export request failed");
-
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${baseName}-export-${new Date().toISOString().split("T")[0]}.xlsx`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
+      const XLSX = await import("xlsx");
+      const workbook = XLSX.utils.book_new();
+      const sheetName = (contentType.split(".").pop() ?? "export").replace(/[^\w\s-]/gi, "_").substring(0, 31);
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rows, { header: cols }), sheetName);
+      XLSX.writeFile(workbook, `${baseName}-export-${new Date().toISOString().split("T")[0]}.xlsx`);
 
       notifyRef.current({ type: "success", message: "Export completed successfully" });
     } catch (error: any) {
       notifyRef.current({ type: "danger", message: `Export failed: ${error.message}` });
     } finally {
       setIsDownloading(false);
+      setDownloadProgress(null);
     }
   };
 
@@ -161,7 +164,7 @@ const ExportPreviewPage = () => {
             )}
           </Flex>
           <Button onClick={handleDownload} loading={isDownloading} disabled={loading || columns.length === 0}>
-            Download Excel
+            {downloadProgress ? `Exporting… ${downloadProgress.done}/${downloadProgress.total}` : "Download Excel"}
           </Button>
         </Flex>
 
@@ -170,8 +173,8 @@ const ExportPreviewPage = () => {
           <ColumnSorter
             columns={columns}
             onColumnsReorder={(newCols) => setColumns(newCols)}
-            onColumnDelete={(col) => setColumns((prev) => prev.filter((c) => c !== col))}
-            onResetColumns={() => setColumns([...allColumns])}
+            onColumnDelete={(col) => changeColumns(columns.filter((c) => c !== col))}
+            onResetColumns={() => changeColumns([...allColumns])}
             originalColumnsCount={allColumns.length}
           />
         </Box>

@@ -1,62 +1,18 @@
 import type { Core } from "@strapi/strapi";
-import * as XLSX from "xlsx";
+import { SHORTCUT_FIELDS } from "../constants";
+import type { ImportResults } from "../types";
+import { extractSchemaFieldSets } from "../utils/export/transform";
+import { describeError, hasChanges } from "../utils/import/compare";
+import { cleanSheetRows } from "../utils/import/file";
 import {
-  cleanSheetRows,
-  cleanupFile,
-  getComponentFieldNames,
-  getFileInfo,
-  getMediaAltFieldNames,
-  getRelationFieldDefs,
-  hasChanges,
-  type ImportBatch,
-  type ImportResults,
   MEDIA_ALT_KEY,
   mergeComponentData,
-  mergeResults,
   parseJsonIfNeeded,
   parseMediaAltColumn,
-  SHORTCUT_FIELDS,
   setNestedPath,
-  sheetToJson,
-} from "../utils/import";
+} from "../utils/import/transform";
 
 const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
-  async getFileHeaders(file: any): Promise<string[]> {
-    const { filePath } = getFileInfo(file, "unknown.xlsx");
-
-    try {
-      const workbook = XLSX.readFile(filePath);
-      const sheet = workbook.Sheets[workbook.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json<any[]>(sheet, { header: 1 });
-      return (rows[0] ?? []).map((h: any) => String(h).trim());
-    } finally {
-      cleanupFile(filePath);
-    }
-  },
-
-  async importData(
-    file: any,
-    targetContentType: string | null = null,
-    locale: string | null = null,
-    identifierField: string | null = null,
-    bulkLocaleUpload = false,
-    publishOnImport = false
-  ) {
-    const { filePath } = getFileInfo(file, "unknown.xlsx");
-
-    try {
-      if (bulkLocaleUpload && targetContentType) {
-        const batches = this.transformExcelDataByLocale(filePath, targetContentType);
-        return await this.bulkInsertBatches(batches, identifierField, publishOnImport);
-      }
-      const importData = this.transformExcelData(filePath, targetContentType);
-      return await this.bulkInsertData(importData, locale, identifierField, publishOnImport);
-    } catch (error) {
-      cleanupFile(filePath);
-      throw error;
-    }
-  },
-
   /**
    * Import a single batch of already-parsed sheet rows (header→value objects),
    * as sent by the admin UI's client-driven chunked import. Stateless: no file,
@@ -68,73 +24,21 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
     contentType: string,
     locale: string | null = null,
     identifierField: string | null = null,
-    publishOnImport = false
+    publishOnImport = false,
+    startRow = 2
   ): Promise<ImportResults> {
     if (!strapi.contentTypes[contentType]) {
       return { created: 0, updated: 0, skipped: 0, mediaUpdated: 0, errors: [`Content type ${contentType} not found`] };
     }
     const rows = cleanSheetRows(Array.isArray(rawRows) ? rawRows : []);
     const entries = this.unflattenRows(rows, contentType);
-    return this.importEntries(entries, contentType, locale, identifierField, publishOnImport);
-  },
-
-  transformExcelData(filePath: string, targetContentType: string | null = null): Record<string, any[]> {
-    const workbook = XLSX.readFile(filePath);
-    const importData: Record<string, any[]> = {};
-
-    workbook.SheetNames.forEach((sheetName) => {
-      const worksheet = workbook.Sheets[sheetName];
-      const rows = sheetToJson(worksheet);
-      if (!rows.length) return;
-
-      const ctName = targetContentType || `api::${sheetName}.${sheetName}`;
-
-      if (!ctName.startsWith("api::")) {
-        strapi.log.error(`Unknown content-type: ${ctName}`);
-        return;
-      }
-      if (!strapi.contentTypes[ctName]) {
-        strapi.log.error(`Content type ${ctName} not found`);
-        return;
-      }
-
-      importData[ctName] = this.unflattenRows(rows, ctName);
-    });
-
-    return importData;
-  },
-
-  transformExcelDataByLocale(filePath: string, targetContentType: string): ImportBatch[] {
-    const workbook = XLSX.readFile(filePath);
-    const batches: ImportBatch[] = [];
-
-    if (!strapi.contentTypes[targetContentType]) {
-      strapi.log.error(`Content type ${targetContentType} not found`);
-      return batches;
-    }
-
-    workbook.SheetNames.forEach((sheetName) => {
-      const worksheet = workbook.Sheets[sheetName];
-      const rows = sheetToJson(worksheet);
-      if (!rows.length) return;
-
-      batches.push({
-        contentType: targetContentType,
-        locale: sheetName,
-        entries: this.unflattenRows(rows, targetContentType),
-      });
-    });
-
-    return batches;
+    return this.importEntries(entries, contentType, locale, identifierField, publishOnImport, startRow);
   },
 
   unflattenRows(rows: any[], ctName: string): any[] {
     const attributes = strapi.contentTypes[ctName]?.attributes || {};
 
-    const compFieldDefs = Object.entries<any>(attributes)
-      .filter(([, def]) => def.type === "component")
-      .map(([name, def]) => ({ name, repeatable: !!def.repeatable }));
-    const mediaAltFields = getMediaAltFieldNames(attributes);
+    const { componentFields, mediaAltFields } = extractSchemaFieldSets(attributes, strapi);
 
     return rows.map((row) => {
       const rowData: Record<string, any> = {};
@@ -149,23 +53,14 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
           continue;
         }
 
-        const compDef = compFieldDefs.find((c) => key === c.name || key.startsWith(`${c.name}_`));
+        const compName = componentFields.find((name) => key === name || key.startsWith(`${name}_`));
 
-        if (compDef) {
-          if (key === compDef.name) {
-            if (typeof value === "string" && (value.startsWith("[") || value.startsWith("{"))) {
-              try {
-                rowData[compDef.name] = JSON.parse(value);
-              } catch {
-                rowData[compDef.name] = null;
-              }
-            } else {
-              rowData[compDef.name] = value;
-            }
+        if (compName) {
+          if (key === compName) {
+            rowData[compName] = parseJsonIfNeeded(value);
           } else {
-            if (!rowData[compDef.name]) rowData[compDef.name] = {};
-            const subPath = key.slice(compDef.name.length + 1);
-            setNestedPath(rowData[compDef.name], subPath, value);
+            if (!rowData[compName]) rowData[compName] = {};
+            setNestedPath(rowData[compName], key.slice(compName.length + 1), value);
           }
           continue;
         }
@@ -244,47 +139,48 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
     return null;
   },
 
+  /** Resolves one relation cell (`field:value`, shortcut, or `|`-joined list) to document refs. */
+  async resolveRelationField(value: any, attr: any, locale: string | null): Promise<any> {
+    const isArrayRelation = attr.relation === "manyToMany" || attr.relation === "oneToMany";
+    if (typeof value === "string" && isArrayRelation) value = value.split("|");
+
+    const values = Array.isArray(value) ? value : [value];
+    const processed: any[] = [];
+    for (const relValue of values) {
+      if (!relValue) continue;
+      const resolved = await this.resolveRelationValue(relValue, attr.target, locale);
+      if (resolved) processed.push(resolved);
+    }
+    return isArrayRelation || Array.isArray(value) ? processed : processed[0];
+  },
+
   async handleRelations(
     entry: Record<string, any>,
     contentType: string,
     locale: string | null = null
   ): Promise<Record<string, any>> {
     const attributes = strapi.contentTypes[contentType]?.attributes ?? {};
-    const relationFields = getRelationFieldDefs(attributes);
-    if (relationFields.length === 0) return entry;
-
     const updatedEntry = { ...entry };
 
-    for (const rel of relationFields) {
-      const { field, target, relation } = rel;
-
+    for (const [field, attr] of Object.entries<any>(attributes)) {
       // A column absent from the sheet means "leave this relation alone"; only a column
       // that is present and empty clears it. Without this distinction a narrow sheet
       // (e.g. sku + banner.alternativeText) silently wipes every relation it omits,
       // and reports the wipe as a successful "updated".
-      if (!(field in entry)) continue;
+      if (attr.type !== "relation" || !(field in entry)) continue;
 
-      let value = entry[field];
+      const value = entry[field];
+      const isArrayRelation = attr.relation === "manyToMany" || attr.relation === "oneToMany";
 
-      if (!value || value === "") {
-        updatedEntry[field] = relation === "manyToMany" || relation === "oneToMany" ? [] : null;
+      if (!value) {
+        updatedEntry[field] = isArrayRelation ? [] : null;
         continue;
       }
-
-      if (typeof value === "string" && (relation === "manyToMany" || relation === "oneToMany")) {
-        value = value.split("|");
-      } else if (typeof value === "string" && value.includes("|")) {
+      if (typeof value === "string" && !isArrayRelation && value.includes("|")) {
         throw new Error(`Invalid value for field ${field}: ${value} — not an array relation`);
       }
 
-      const values = Array.isArray(value) ? value : [value];
-      const processed: any[] = [];
-      for (const relValue of values) {
-        if (!relValue || relValue === "") continue;
-        const resolved = await this.resolveRelationValue(relValue, target, locale);
-        if (resolved) processed.push(resolved);
-      }
-      updatedEntry[field] = Array.isArray(value) ? processed : processed[0];
+      updatedEntry[field] = await this.resolveRelationField(value, attr, locale);
     }
 
     return updatedEntry;
@@ -314,22 +210,7 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
       if (!(fieldName in result) || result[fieldName] == null || result[fieldName] === "") continue;
 
       if (attr.type === "relation") {
-        const target = attr.target;
-        const isArrayRelation = attr.relation === "manyToMany" || attr.relation === "oneToMany";
-        let value = result[fieldName];
-
-        if (typeof value === "string" && isArrayRelation) {
-          value = value.split("|");
-        }
-
-        const values = Array.isArray(value) ? value : [value];
-        const processed: any[] = [];
-        for (const relValue of values) {
-          if (!relValue || relValue === "") continue;
-          const resolved = await this.resolveRelationValue(relValue, target, locale);
-          if (resolved) processed.push(resolved);
-        }
-        result[fieldName] = isArrayRelation || Array.isArray(value) ? processed : (processed[0] ?? null);
+        result[fieldName] = (await this.resolveRelationField(result[fieldName], attr, locale)) ?? null;
       } else if (attr.type === "component") {
         result[fieldName] = await this.resolveComponentRelations(result[fieldName], attr.component, locale);
       }
@@ -356,53 +237,6 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
     return updatedEntry;
   },
 
-  async bulkInsertData(
-    importData: Record<string, any[]>,
-    locale: string | null = null,
-    identifierField: string | null = null,
-    publishOnImport = false
-  ) {
-    const results: ImportResults = { created: 0, updated: 0, skipped: 0, mediaUpdated: 0, errors: [] };
-
-    for (const [contentType, entries] of Object.entries(importData)) {
-      if (!strapi.contentTypes[contentType]) {
-        results.errors.push(`Content type ${contentType} not found`);
-        continue;
-      }
-      if (!Array.isArray(entries)) {
-        results.errors.push(`Invalid data format for ${contentType}`);
-        continue;
-      }
-
-      try {
-        mergeResults(results, await this.importEntries(entries, contentType, locale, identifierField, publishOnImport));
-      } catch (err: any) {
-        results.errors.push(err.message);
-      }
-    }
-
-    return results;
-  },
-
-  async bulkInsertBatches(batches: ImportBatch[], identifierField: string | null = null, publishOnImport = false) {
-    const results: ImportResults = { created: 0, updated: 0, skipped: 0, mediaUpdated: 0, errors: [] };
-
-    for (const { contentType, locale, entries } of batches) {
-      if (!strapi.contentTypes[contentType]) {
-        results.errors.push(`Content type ${contentType} not found`);
-        continue;
-      }
-
-      try {
-        mergeResults(results, await this.importEntries(entries, contentType, locale, identifierField, publishOnImport));
-      } catch (err: any) {
-        results.errors.push(`[${locale}] ${err.message}`);
-      }
-    }
-
-    return results;
-  },
-
   /**
    * Writes `<mediaField>.alternativeText` values onto the *files* the entry's media
    * fields point at, via the upload plugin. The document service cannot do this: it
@@ -418,13 +252,13 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
     mediaAltValues: Record<string, any>,
     entry: any,
     results: ImportResults,
-    rowNumber: number
+    rowLabel: string
   ): Promise<void> {
     const pending = Object.entries(mediaAltValues).filter(([, value]) => value != null && String(value).trim() !== "");
     if (pending.length === 0) return;
 
     if (!entry) {
-      results.errors.push(`Row ${rowNumber}: alt text given but the entry was created, so no file is linked yet`);
+      results.errors.push(`${rowLabel}: alt text given but the entry was created, so no file is linked yet`);
       return;
     }
 
@@ -435,7 +269,7 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
       const file = entry[field];
 
       if (!file?.id) {
-        results.errors.push(`Row ${rowNumber}: "${field}" has no file attached — alt text skipped`);
+        results.errors.push(`${rowLabel}: "${field}" has no file attached — alt text skipped`);
         continue;
       }
       if (file.alternativeText === alternativeText) continue;
@@ -450,11 +284,12 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
     contentType: string,
     locale: string | null = null,
     identifierField: string | null = null,
-    publishOnImport = false
+    publishOnImport = false,
+    startRow = 2
   ) {
     const results: ImportResults = { created: 0, updated: 0, skipped: 0, mediaUpdated: 0, errors: [] };
     const attributes = strapi.contentTypes[contentType]?.attributes ?? {};
-    const compFields = getComponentFieldNames(attributes);
+    const { componentFields } = extractSchemaFieldSets(attributes, strapi);
 
     const isLocalized = (strapi.contentTypes[contentType] as any)?.pluginOptions?.i18n?.localized ?? false;
     const localeParam = isLocalized && locale ? { locale } : {};
@@ -462,22 +297,22 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
 
     for (let i = 0; i < entries.length; i++) {
       const entry = entries[i];
+      const byIdentifier = identifierField && identifierField !== "id";
+      const idVal = byIdentifier ? entry[identifierField] : null;
+      const rowLabel = `Row ${startRow + i}${idVal != null ? ` (${identifierField}=${idVal})` : ""}`;
 
       try {
-        if (identifierField && identifierField !== "id") {
-          const identifierValue = entry[identifierField];
-          if (identifierValue == null || (typeof identifierValue === "string" && !identifierValue.trim())) {
-            results.skipped++;
-            continue;
-          }
+        if (byIdentifier && (idVal == null || (typeof idVal === "string" && !idVal.trim()))) {
+          results.skipped++;
+          continue;
         }
 
         let existing: any = null;
         const { id, [MEDIA_ALT_KEY]: mediaAltValues, ...rawData } = entry;
 
-        if (identifierField && identifierField !== "id" && entry[identifierField] != null) {
+        if (idVal != null) {
           existing = await strapi.documents(contentType as any).findFirst({
-            filters: { [identifierField]: { $eq: entry[identifierField] } } as any,
+            filters: { [identifierField]: { $eq: idVal } } as any,
             populate: "*",
             ...localeParam,
           } as any);
@@ -491,14 +326,13 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
 
         let data = await this.handleRelations(rawData, contentType, locale);
         data = await this.handleComponentRelations(data, contentType, locale);
-        data = mergeComponentData(data, existing, compFields);
+        data = mergeComponentData(data, existing, componentFields);
 
         // The entry the row's media alt text applies to, if any. Set wherever we
         // matched an existing document; stays null when the row creates one.
-        let mediaEntry: any = null;
+        let mediaEntry: any = existing;
 
         if (existing) {
-          mediaEntry = existing;
           const needsPublish = publishOnImport && existing.publishedAt == null;
           if (hasChanges(existing, data) || needsPublish) {
             await strapi.documents(contentType as any).update({
@@ -509,15 +343,17 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
             } as any);
             results.updated++;
           }
-        } else if (locale && identifierField && identifierField !== "id" && entry[identifierField] != null) {
-          const existingAnyLocale = await strapi.documents(contentType as any).findFirst({
-            filters: { [identifierField]: { $eq: entry[identifierField] } } as any,
-            populate: "*",
-          } as any);
-          if (existingAnyLocale) {
-            mediaEntry = existingAnyLocale;
+        } else {
+          mediaEntry =
+            locale && idVal != null
+              ? await strapi.documents(contentType as any).findFirst({
+                  filters: { [identifierField]: { $eq: idVal } } as any,
+                  populate: "*",
+                } as any)
+              : null;
+          if (mediaEntry) {
             await strapi.documents(contentType as any).update({
-              documentId: existingAnyLocale.documentId,
+              documentId: mediaEntry.documentId,
               data,
               ...statusParam,
               ...localeParam,
@@ -531,23 +367,16 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
             } as any);
             results.created++;
           }
-        } else {
-          await strapi.documents(contentType as any).create({
-            data,
-            ...statusParam,
-            ...localeParam,
-          } as any);
-          results.created++;
         }
 
         // Outside the hasChanges gate on purpose — see applyMediaAltText.
         if (mediaAltValues) {
-          await this.applyMediaAltText(mediaAltValues, mediaEntry, results, i + 2);
+          await this.applyMediaAltText(mediaAltValues, mediaEntry, results, rowLabel);
         }
       } catch (err: any) {
-        const errorMsg = err?.message || err?.details?.errors?.[0]?.message || JSON.stringify(err);
-        strapi.log.error(`Row ${i + 2} failed: ${errorMsg}`, err?.details || err);
-        results.errors.push(`Row ${i + 2}: ${errorMsg}`);
+        const errorMsg = describeError(err);
+        strapi.log.error(`${rowLabel} failed: ${errorMsg}`, err?.details || err);
+        results.errors.push(`${rowLabel}: ${errorMsg}`);
         results.skipped++;
       }
     }
