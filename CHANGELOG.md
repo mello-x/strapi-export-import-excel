@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.6.0](https://github.com/mello-x/strapi-export-import-excel/compare/strapi-export-import-excel-v1.5.0...strapi-export-import-excel-v1.6.0) (2026-10-07)
+
+
+### Features
+
+* release duplicate-row fix, per-row import errors, timeout-safe export/import ([d151281](https://github.com/mello-x/strapi-export-import-excel/commit/d151281ab1a2d2053677bd057aaff0ade8775f40))
+* release duplicate-row fix, per-row import errors, timeout-safe export/import ([1e506a1](https://github.com/mello-x/strapi-export-import-excel/commit/1e506a1e72ff2df7e1d92c12b67b291188fe8110))
+
 ## [1.5.0](https://github.com/mello-x/strapi-export-import-excel/compare/strapi-export-import-excel-v1.4.0...strapi-export-import-excel-v1.5.0) (2026-08-28)
 
 
