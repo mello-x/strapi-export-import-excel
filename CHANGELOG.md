@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.6.1](https://github.com/mello-x/strapi-export-import-excel/compare/strapi-export-import-excel-v1.6.0...strapi-export-import-excel-v1.6.1) (2026-10-21)
+
+
+### Bug Fixes
+
+* update xlsx dependency to version 0.20.3 ([246dced](https://github.com/mello-x/strapi-export-import-excel/commit/246dceddfa49da75b28e91d1107bb90c17a60984))
+* update xlsx dependency to version 0.20.3 ([882485c](https://github.com/mello-x/strapi-export-import-excel/commit/882485c585a7b005d8ed7fce6cd5a636677cae11))
+
 ## [1.6.0](https://github.com/mello-x/strapi-export-import-excel/compare/strapi-export-import-excel-v1.5.0...strapi-export-import-excel-v1.6.0) (2026-10-07)
 
 
