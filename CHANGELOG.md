@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.6.3](https://github.com/mello-x/strapi-export-import-excel/compare/strapi-export-import-excel-v1.6.2...strapi-export-import-excel-v1.6.3) (2026-10-21)
+
+
+### Bug Fixes
+
+* **ci:** pin npm 11 in publish job ([f83d8f8](https://github.com/mello-x/strapi-export-import-excel/commit/f83d8f8741d0dead2191accd360312d683e98abf))
+* **ci:** pin npm 11 in publish job ([a3d7a2e](https://github.com/mello-x/strapi-export-import-excel/commit/a3d7a2e722bd50c41595ff93b9a1d1c28d470d48))
+
 ## [1.6.2](https://github.com/mello-x/strapi-export-import-excel/compare/strapi-export-import-excel-v1.6.1...strapi-export-import-excel-v1.6.2) (2026-10-21)
 
 
