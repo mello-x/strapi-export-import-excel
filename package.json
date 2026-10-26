@@ -50,6 +50,7 @@
     "verify": "strapi-plugin verify",
     "test:ts:front": "run -T tsc -p admin/tsconfig.json",
     "test:ts:back": "run -T tsc -p server/tsconfig.json",
+    "test": "node --import tsx --test \"server/src/**/*.test.ts\"",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "prepare": "husky"
@@ -72,6 +73,7 @@
     "react-intl": "6.8.9",
     "react-router-dom": "6.30.3",
     "styled-components": "6.5.3",
+    "tsx": "4.23.15",
     "typescript": "5.9.3",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
