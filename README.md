@@ -149,13 +149,21 @@ name:Value A|name:Value B|name:Value C
 
 ## API Endpoints
 
-All endpoints are prefixed with `/api/strapi-export-import-excel`.
+All endpoints are served on the **admin API** under `/strapi-export-import-excel` and require an authenticated administrator (`Authorization: Bearer <admin JWT>`). They are not exposed on the public content API (`/api/...`) and cannot be used with API tokens or the Public role.
+
+Access to each collection follows the signed-in admin's **Content Manager permissions**, the same rules as the Content Manager itself:
+
+- Export / `tabledata` / `export` need `read` on the collection; rows are narrowed by the role's conditions and fields the role cannot read are removed.
+- Import needs `create` and/or `update`; fields the role cannot write are dropped, `publishOnImport` needs `publish`, and relation columns need `read` on the target collection.
+- `<field>.alternativeText` columns also need the Media Library `update` permission.
+- Collections switched off in the plugin settings are refused server-side, and only `api::*` collections are served.
+- `PUT /settings` needs the `Settings → Export / Import Excel` permission (`plugin::strapi-export-import-excel.settings.read`).
 
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/settings` | Get plugin settings |
 | `PUT` | `/settings` | Update plugin settings |
-| `GET` | `/collections` | List all collections |
+| `GET` | `/collections` | List all collections, with `canExport` / `canImport` for the current admin |
 | `GET` | `/locales` | List available locales |
 | `GET` | `/collections/:uid/fields` | Get fields for a collection |
 | `GET` | `/tabledata` | Paginated rows (`start`/`limit`, `columns`, `locale`) — used by the preview and the admin download |

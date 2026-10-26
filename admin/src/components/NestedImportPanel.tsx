@@ -2,8 +2,8 @@ import { Box, Button, Flex, SingleSelect, SingleSelectOption, Toggle, Typography
 import { Upload } from "@strapi/icons";
 import { useNotification } from "@strapi/strapi/admin";
 import { useEffect, useRef, useState } from "react";
-import { PLUGIN_ID } from "../pluginId";
 import { type Collection, PANEL_STYLE } from "../shared";
+import { apiGet } from "../utils/api";
 import { runComponentImport } from "../utils/importClient";
 import { type ParsedSheet, parseWorkbook } from "../utils/parseWorkbook";
 import { ImportErrors } from "./ImportErrors";
@@ -76,8 +76,7 @@ const NestedImportPanel = ({ collections, locales, defaultLocale }: NestedImport
       return;
     }
 
-    fetch(`/api/${PLUGIN_ID}/collections/${encodeURIComponent(collection)}/fields`)
-      .then((res) => res.json())
+    apiGet(`/collections/${encodeURIComponent(collection)}/fields`)
       .then((data) => setFields(data.fields ?? []))
       .catch(() => setFields([]));
 
@@ -156,7 +155,7 @@ const NestedImportPanel = ({ collections, locales, defaultLocale }: NestedImport
         placeholder="Select collection..."
       >
         {collections
-          .filter((c) => c.importEnabled !== false)
+          .filter((c) => c.importEnabled !== false && c.canImport !== false)
           .map((col) => (
             <SingleSelectOption key={col.uid} value={col.uid}>
               {col.displayName}

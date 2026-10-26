@@ -2,11 +2,17 @@ import type { Core } from "@strapi/strapi";
 import * as XLSX from "xlsx";
 import { getPluginStore, STORE_KEY } from "../constants";
 import type { CollectionConfig, PluginSettings } from "../types";
+import type { ContentTypeAccess } from "../utils/access";
 import { buildDeepPopulate } from "../utils/export/query";
 import { expandEntry, extractSchemaFieldSets, forColumns } from "../utils/export/transform";
 
 const exportService = ({ strapi }: { strapi: Core.Strapi }) => ({
-  async exportData(contentType: string, columnsOverride?: string, locale?: string) {
+  async exportData(
+    contentType: string,
+    columnsOverride: string | undefined,
+    locale: string | undefined,
+    access: ContentTypeAccess
+  ) {
     const schema = strapi.contentTypes[contentType];
     if (!schema) {
       throw new Error(`Content type ${contentType} not found`);
@@ -15,11 +21,13 @@ const exportService = ({ strapi }: { strapi: Core.Strapi }) => ({
     const isLocalized = schema.pluginOptions?.i18n?.localized ?? false;
     const localeParam = isLocalized && locale ? { locale } : {};
 
-    const entries = await strapi.documents(contentType as any).findMany({
+    const query = await access.sanitizedReadQuery({
       populate: buildDeepPopulate(strapi, contentType),
       sort: "id:asc",
       ...localeParam,
     });
+    const found = await strapi.documents(contentType as any).findMany(query as any);
+    const entries = await Promise.all((found ?? []).map((entry) => access.sanitizeOutput(entry)));
 
     const stored = (await getPluginStore(strapi).get({ key: STORE_KEY })) as PluginSettings | null;
     return this.convertToExcel(contentType, entries ?? [], stored?.collections?.[contentType], columnsOverride);

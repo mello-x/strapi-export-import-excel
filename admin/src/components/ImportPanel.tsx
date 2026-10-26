@@ -139,7 +139,7 @@ const ImportPanel = ({ collections, locales, defaultLocale }: ImportPanelProps) 
         placeholder="Select collection..."
       >
         {collections
-          .filter((c) => c.importEnabled !== false)
+          .filter((c) => c.importEnabled !== false && c.canImport !== false)
           .map((col) => (
             <SingleSelectOption key={col.uid} value={col.uid}>
               {col.displayName}

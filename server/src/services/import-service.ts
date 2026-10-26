@@ -1,6 +1,7 @@
 import type { Core } from "@strapi/strapi";
 import { SHORTCUT_FIELDS } from "../constants";
 import type { ImportResults } from "../types";
+import type { ContentTypeAccess } from "../utils/access";
 import { extractSchemaFieldSets } from "../utils/export/transform";
 import { describeError, hasChanges } from "../utils/import/compare";
 import { cleanSheetRows } from "../utils/import/file";
@@ -11,6 +12,10 @@ import {
   parseMediaAltColumn,
   setNestedPath,
 } from "../utils/import/transform";
+
+const assertCan = (allowed: boolean, action: string, rowLabel: string): void => {
+  if (!allowed) throw new Error(`${rowLabel}: you are not allowed to ${action} this entry`);
+};
 
 const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
   /**
@@ -25,14 +30,15 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
     locale: string | null = null,
     identifierField: string | null = null,
     publishOnImport = false,
-    startRow = 2
+    startRow = 2,
+    access: ContentTypeAccess
   ): Promise<ImportResults> {
     if (!strapi.contentTypes[contentType]) {
       return { created: 0, updated: 0, skipped: 0, mediaUpdated: 0, errors: [`Content type ${contentType} not found`] };
     }
     const rows = cleanSheetRows(Array.isArray(rawRows) ? rawRows : []);
     const entries = this.unflattenRows(rows, contentType);
-    return this.importEntries(entries, contentType, locale, identifierField, publishOnImport, startRow);
+    return this.importEntries(entries, contentType, locale, identifierField, publishOnImport, startRow, access);
   },
 
   unflattenRows(rows: any[], ctName: string): any[] {
@@ -85,10 +91,14 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
   async resolveRelationValue(
     value: any,
     target: string,
-    locale: string | null = null
+    locale: string | null = null,
+    access: ContentTypeAccess
   ): Promise<{ documentId: string } | null> {
     const targetAttr = strapi.contentTypes[target]?.attributes;
     if (!targetAttr) return null;
+
+    // Resolving a relation looks the target document up, so it needs the same read permission
+    if (!access.canReadModel(target)) throw new Error(`You are not allowed to link ${target} documents`);
 
     const targetIsLocalized = (strapi.contentTypes[target] as any)?.pluginOptions?.i18n?.localized ?? false;
     const localeParam = targetIsLocalized && locale ? { locale } : {};
@@ -140,7 +150,7 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
   },
 
   /** Resolves one relation cell (`field:value`, shortcut, or `|`-joined list) to document refs. */
-  async resolveRelationField(value: any, attr: any, locale: string | null): Promise<any> {
+  async resolveRelationField(value: any, attr: any, locale: string | null, access: ContentTypeAccess): Promise<any> {
     const isArrayRelation = attr.relation === "manyToMany" || attr.relation === "oneToMany";
     if (typeof value === "string" && isArrayRelation) value = value.split("|");
 
@@ -148,7 +158,7 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
     const processed: any[] = [];
     for (const relValue of values) {
       if (!relValue) continue;
-      const resolved = await this.resolveRelationValue(relValue, attr.target, locale);
+      const resolved = await this.resolveRelationValue(relValue, attr.target, locale, access);
       if (resolved) processed.push(resolved);
     }
     return isArrayRelation || Array.isArray(value) ? processed : processed[0];
@@ -157,7 +167,8 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
   async handleRelations(
     entry: Record<string, any>,
     contentType: string,
-    locale: string | null = null
+    locale: string | null = null,
+    access: ContentTypeAccess
   ): Promise<Record<string, any>> {
     const attributes = strapi.contentTypes[contentType]?.attributes ?? {};
     const updatedEntry = { ...entry };
@@ -180,7 +191,7 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
         throw new Error(`Invalid value for field ${field}: ${value} — not an array relation`);
       }
 
-      updatedEntry[field] = await this.resolveRelationField(value, attr, locale);
+      updatedEntry[field] = await this.resolveRelationField(value, attr, locale, access);
     }
 
     return updatedEntry;
@@ -189,7 +200,8 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
   async resolveComponentRelations(
     componentData: any,
     componentUid: string,
-    locale: string | null = null
+    locale: string | null = null,
+    access: ContentTypeAccess
   ): Promise<any> {
     const compSchema = (strapi as any).components?.[componentUid];
     if (!compSchema?.attributes) return componentData;
@@ -197,7 +209,7 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
     if (Array.isArray(componentData)) {
       const resolved = [];
       for (const item of componentData) {
-        resolved.push(await this.resolveComponentRelations(item, componentUid, locale));
+        resolved.push(await this.resolveComponentRelations(item, componentUid, locale, access));
       }
       return resolved;
     }
@@ -210,9 +222,9 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
       if (!(fieldName in result) || result[fieldName] == null || result[fieldName] === "") continue;
 
       if (attr.type === "relation") {
-        result[fieldName] = (await this.resolveRelationField(result[fieldName], attr, locale)) ?? null;
+        result[fieldName] = (await this.resolveRelationField(result[fieldName], attr, locale, access)) ?? null;
       } else if (attr.type === "component") {
-        result[fieldName] = await this.resolveComponentRelations(result[fieldName], attr.component, locale);
+        result[fieldName] = await this.resolveComponentRelations(result[fieldName], attr.component, locale, access);
       }
     }
 
@@ -222,7 +234,8 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
   async handleComponentRelations(
     entry: Record<string, any>,
     contentType: string,
-    locale: string | null = null
+    locale: string | null = null,
+    access: ContentTypeAccess
   ): Promise<Record<string, any>> {
     const attributes = strapi.contentTypes[contentType]?.attributes ?? {};
     const updatedEntry = { ...entry };
@@ -231,7 +244,12 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
       if (def.type !== "component") continue;
       if (!updatedEntry[fieldName]) continue;
 
-      updatedEntry[fieldName] = await this.resolveComponentRelations(updatedEntry[fieldName], def.component, locale);
+      updatedEntry[fieldName] = await this.resolveComponentRelations(
+        updatedEntry[fieldName],
+        def.component,
+        locale,
+        access
+      );
     }
 
     return updatedEntry;
@@ -252,10 +270,16 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
     mediaAltValues: Record<string, any>,
     entry: any,
     results: ImportResults,
-    rowLabel: string
+    rowLabel: string,
+    access: ContentTypeAccess
   ): Promise<void> {
     const pending = Object.entries(mediaAltValues).filter(([, value]) => value != null && String(value).trim() !== "");
     if (pending.length === 0) return;
+
+    if (!access.canUpdateMedia()) {
+      results.errors.push(`${rowLabel}: you are not allowed to edit media metadata — alt text skipped`);
+      return;
+    }
 
     if (!entry) {
       results.errors.push(`${rowLabel}: alt text given but the entry was created, so no file is linked yet`);
@@ -285,7 +309,8 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
     locale: string | null = null,
     identifierField: string | null = null,
     publishOnImport = false,
-    startRow = 2
+    startRow = 2,
+    access: ContentTypeAccess
   ) {
     const results: ImportResults = { created: 0, updated: 0, skipped: 0, mediaUpdated: 0, errors: [] };
     const attributes = strapi.contentTypes[contentType]?.attributes ?? {};
@@ -324,8 +349,8 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
           } as any);
         }
 
-        let data = await this.handleRelations(rawData, contentType, locale);
-        data = await this.handleComponentRelations(data, contentType, locale);
+        let data = await this.handleRelations(rawData, contentType, locale, access);
+        data = await this.handleComponentRelations(data, contentType, locale, access);
         data = mergeComponentData(data, existing, componentFields);
 
         // The entry the row's media alt text applies to, if any. Set wherever we
@@ -335,6 +360,9 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
         if (existing) {
           const needsPublish = publishOnImport && existing.publishedAt == null;
           if (hasChanges(existing, data) || needsPublish) {
+            assertCan(access.canUpdate(existing), "update", rowLabel);
+            assertCan(!publishOnImport || access.canPublish(existing), "publish", rowLabel);
+            data = await access.sanitizeUpdateInput(existing, data);
             await strapi.documents(contentType as any).update({
               documentId: existing.documentId,
               data,
@@ -352,6 +380,9 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
                 } as any)
               : null;
           if (mediaEntry) {
+            assertCan(access.canUpdate(mediaEntry), "update", rowLabel);
+            assertCan(!publishOnImport || access.canPublish(mediaEntry), "publish", rowLabel);
+            data = await access.sanitizeUpdateInput(mediaEntry, data);
             await strapi.documents(contentType as any).update({
               documentId: mediaEntry.documentId,
               data,
@@ -360,6 +391,8 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
             } as any);
             results.updated++;
           } else {
+            assertCan(access.canCreate(), "create", rowLabel);
+            data = await access.sanitizeCreateInput(data);
             await strapi.documents(contentType as any).create({
               data,
               ...statusParam,
@@ -371,7 +404,7 @@ const importService = ({ strapi }: { strapi: Core.Strapi }) => ({
 
         // Outside the hasChanges gate on purpose — see applyMediaAltText.
         if (mediaAltValues) {
-          await this.applyMediaAltText(mediaAltValues, mediaEntry, results, rowLabel);
+          await this.applyMediaAltText(mediaAltValues, mediaEntry, results, rowLabel, access);
         }
       } catch (err: any) {
         const errorMsg = describeError(err);

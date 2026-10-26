@@ -5,8 +5,8 @@ import { ExportPanel } from "../components/ExportPanel";
 import { ImportPanel } from "../components/ImportPanel";
 import type { Locale } from "../components/LocaleSelect";
 import { NestedImportPanel } from "../components/NestedImportPanel";
-import { PLUGIN_ID } from "../pluginId";
 import type { Collection } from "../shared";
+import { apiGet } from "../utils/api";
 
 const HomePage = () => {
   const [collections, setCollections] = useState<Collection[]>([]);
@@ -15,10 +15,7 @@ const HomePage = () => {
   const { toggleNotification } = useNotification();
 
   useEffect(() => {
-    Promise.all([
-      fetch(`/api/${PLUGIN_ID}/collections`).then((r) => r.json()),
-      fetch(`/api/${PLUGIN_ID}/locales`).then((r) => r.json()),
-    ])
+    Promise.all([apiGet("/collections"), apiGet("/locales")])
       .then(([colData, locData]) => {
         setCollections(colData.collections ?? []);
         setLocales(locData.locales ?? []);

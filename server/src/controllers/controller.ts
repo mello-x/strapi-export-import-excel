@@ -1,8 +1,36 @@
 import type { Core } from "@strapi/strapi";
 import { getPluginStore, MEDIA_ALT_SUBFIELD, STORE_KEY, SYSTEM_KEYS } from "../constants";
-import type { PluginSettings } from "../types";
+import type { CollectionConfig, PluginSettings } from "../types";
+import { createContentTypeAccess, isManagedContentType, requireContentTypeAccess } from "../utils/access";
 import { buildDeepPopulate } from "../utils/export/query";
 import { expandEntry, extractSchemaFieldSets, forColumns } from "../utils/export/transform";
+
+/** Accepts only the settings the plugin defines; returns null when a value has the wrong shape. */
+const parseCollectionConfig = (value: unknown): CollectionConfig | null => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const { exportEnabled, importEnabled, exportFields, ...rest } = value as Record<string, unknown>;
+  if (Object.keys(rest).length > 0) return null;
+
+  const config: CollectionConfig = {};
+  if (exportEnabled !== undefined) {
+    if (typeof exportEnabled !== "boolean") return null;
+    config.exportEnabled = exportEnabled;
+  }
+  if (importEnabled !== undefined) {
+    if (typeof importEnabled !== "boolean") return null;
+    config.importEnabled = importEnabled;
+  }
+  if (exportFields !== undefined) {
+    if (!Array.isArray(exportFields)) return null;
+    const fields: { key: string; enabled: boolean }[] = [];
+    for (const field of exportFields) {
+      if (typeof field?.key !== "string" || typeof field?.enabled !== "boolean") return null;
+      fields.push({ key: field.key, enabled: field.enabled });
+    }
+    config.exportFields = fields;
+  }
+  return config;
+};
 
 const controller = ({ strapi }: { strapi: Core.Strapi }) => ({
   async getSettings(ctx) {
@@ -25,7 +53,10 @@ const controller = ({ strapi }: { strapi: Core.Strapi }) => ({
     const existing = (await getPluginStore(strapi).get({ key: STORE_KEY })) as PluginSettings | null;
     const merged: Record<string, any> = { ...existing?.collections };
     for (const [uid, vals] of Object.entries(collections)) {
-      merged[uid] = { ...merged[uid], ...(vals as object) };
+      if (!isManagedContentType(strapi, uid)) return ctx.throw(400, `Unknown collection "${uid}"`);
+      const patch = parseCollectionConfig(vals);
+      if (!patch) return ctx.throw(400, `Invalid settings for collection "${uid}"`);
+      merged[uid] = { ...merged[uid], ...patch };
     }
 
     await getPluginStore(strapi).set({
@@ -40,15 +71,26 @@ const controller = ({ strapi }: { strapi: Core.Strapi }) => ({
     const stored = (await getPluginStore(strapi).get({ key: STORE_KEY })) as PluginSettings | null;
     const colSettings = stored?.collections ?? {};
 
+    const userAbility = ctx.state?.userAbility;
+    if (!userAbility) return ctx.throw(401, "Unauthorized");
+
     const collections = Object.entries(strapi.contentTypes)
       .filter(([uid]) => uid.startsWith("api::"))
-      .map(([uid, schema]: [string, any]) => ({
+      .map(([uid, schema]: [string, any]) => {
+        const access = createContentTypeAccess(strapi, userAbility, uid);
+        return { uid, schema, access };
+      })
+      .map(({ uid, schema, access }) => ({
         uid,
         displayName: schema.info?.displayName ?? uid.split(".").pop(),
         collectionName: schema.collectionName ?? uid.split(".").pop(),
         isLocalized: schema.pluginOptions?.i18n?.localized ?? false,
         exportEnabled: colSettings[uid]?.exportEnabled ?? true,
         importEnabled: colSettings[uid]?.importEnabled ?? true,
+        // What the current admin may do, from their Content Manager permissions. Kept apart
+        // from exportEnabled/importEnabled, which are the shared plugin settings.
+        canExport: access.canRead(),
+        canImport: access.canCreate() || access.canUpdate(),
       }))
       .sort((a, b) => a.displayName.localeCompare(b.displayName));
 
@@ -68,10 +110,10 @@ const controller = ({ strapi }: { strapi: Core.Strapi }) => ({
     }
   },
 
-  getCollectionFields(ctx) {
+  async getCollectionFields(ctx) {
     const { uid } = ctx.params;
+    await requireContentTypeAccess(strapi, ctx, uid, "schema");
     const schema = strapi.contentTypes[uid];
-    if (!schema) return ctx.throw(404, "Content type not found");
 
     const toLabel = (key: string) => key.replace(/([A-Z])/g, " $1").replace(/^./, (s: string) => s.toUpperCase());
 
@@ -94,8 +136,8 @@ const controller = ({ strapi }: { strapi: Core.Strapi }) => ({
 
     if (!contentType) return ctx.throw(400, "contentType is required");
 
+    const access = await requireContentTypeAccess(strapi, ctx, contentType, "export");
     const schema = strapi.contentTypes[contentType];
-    if (!schema) return ctx.throw(404, "Content type not found");
 
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
     const limitNum = Math.min(Math.max(1, parseInt(limit, 10) || 10), 100);
@@ -105,16 +147,17 @@ const controller = ({ strapi }: { strapi: Core.Strapi }) => ({
     const isLocalized = schema.pluginOptions?.i18n?.localized ?? false;
     const localeParam = isLocalized && locale ? { locale } : {};
 
-    const [entries, total] = await Promise.all([
-      strapi.documents(contentType as any).findMany({
-        populate: buildDeepPopulate(strapi, contentType),
-        sort: "id:asc",
-        limit: limitNum,
-        start: startNum,
-        ...localeParam,
-      }),
-      strapi.documents(contentType as any).count({ ...localeParam }),
+    // The caller's read conditions (e.g. "only my entries") narrow both the page and the total
+    const query = await access.sanitizedReadQuery({
+      populate: buildDeepPopulate(strapi, contentType),
+      sort: "id:asc",
+      ...localeParam,
+    });
+    const [found, total] = await Promise.all([
+      strapi.documents(contentType as any).findMany({ ...query, limit: limitNum, start: startNum } as any),
+      strapi.documents(contentType as any).count({ ...localeParam, filters: query.filters } as any),
     ]);
+    const entries = await Promise.all((found ?? []).map((entry) => access.sanitizeOutput(entry)));
 
     const requested = columns
       ? columns

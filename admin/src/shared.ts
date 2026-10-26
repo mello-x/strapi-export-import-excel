@@ -4,16 +4,12 @@ export interface Collection {
   isLocalized: boolean;
   exportEnabled: boolean;
   importEnabled: boolean;
+  /** What the signed-in admin may do per their Content Manager permissions (server-computed). */
+  canExport?: boolean;
+  canImport?: boolean;
 }
 
 export const PANEL_STYLE = { border: "1px solid #E3E3E8", borderRadius: "8px", padding: "28px" };
-
-/** Best-effort error text from a failed response: Strapi's `{ error: { message } }`, our `{ error }`, or the status. */
-export async function responseError(res: Response): Promise<string> {
-  const data = await res.json().catch(() => null);
-  const message = data?.error?.message ?? (typeof data?.error === "string" ? data.error : null);
-  return `${res.status} ${message ?? res.statusText}`.trim();
-}
 
 /**
  * Size the next request from how long the last one took, aiming at ~TARGET_MS each, so

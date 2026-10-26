@@ -1,5 +1,5 @@
-import { PLUGIN_ID } from "../pluginId";
-import { nextBatchSize, responseError } from "../shared";
+import { nextBatchSize } from "../shared";
+import { apiSend } from "./api";
 import type { ParsedSheet } from "./parseWorkbook";
 
 // Max rows/parent-groups per HTTP request. Batches start small and are resized from
@@ -50,13 +50,7 @@ async function postBatch(
   label: string
 ): Promise<void> {
   try {
-    const response = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    if (!response.ok) throw new Error(await responseError(response));
-    mergeSummary(agg, await response.json(), prefix);
+    mergeSummary(agg, await apiSend("post", url, body), prefix);
   } catch (error: any) {
     // After a proxy timeout the server may still have finished, so this says "failed", not "not imported"
     agg.errors.push(`${prefix}${label} failed: ${error.message}`);
@@ -98,7 +92,7 @@ export async function runImport(
       const startRow = i + 2;
       await postBatch(
         agg,
-        `/api/${PLUGIN_ID}/import-batch`,
+        "/import-batch",
         {
           contentType: params.contentType,
           identifierField: params.identifierField,
@@ -174,7 +168,7 @@ export async function runComponentImport(
       const ids = groupSlice.map((group) => group[0][params.identifierField]);
       await postBatch(
         agg,
-        `/api/${PLUGIN_ID}/import-component-batch`,
+        "/import-component-batch",
         {
           contentType: params.contentType,
           componentField: params.componentField,

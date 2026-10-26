@@ -1,5 +1,6 @@
 import type { Core } from "@strapi/strapi";
 import { PLUGIN_ID } from "../constants";
+import { requireContentTypeAccess } from "../utils/access";
 
 const EXCEL_CT = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 const today = () => new Date().toISOString().split("T")[0];
@@ -12,17 +13,21 @@ const exportController = ({ strapi }: { strapi: Core.Strapi }) => {
     async export(ctx) {
       try {
         const { contentType, sortOrder, locale } = ctx.query;
+        const access = await requireContentTypeAccess(strapi, ctx, contentType, "export");
         const base = ctBase(contentType as string);
 
         const buffer = await exportService.exportData(
           contentType as string,
           sortOrder as string | undefined,
-          locale as string | undefined
+          locale as string | undefined,
+          access
         );
         ctx.set("Content-Type", EXCEL_CT);
         ctx.set("Content-Disposition", `attachment; filename="${base}-export-${today()}.xlsx"`);
         ctx.body = buffer;
       } catch (error: any) {
+        // ctx.throw() errors (401/403/404) keep their own status and message
+        if (error.expose) throw error;
         strapi.log.error("Export error:", error);
         // Set directly, not thrown: Strapi replaces thrown 5xx messages with "Internal Server Error"
         ctx.status = 500;
