@@ -4,8 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { ColumnSorter } from "../components/ColumnSorter";
 import { StrapiTable } from "../components/StrapiTable";
-import { PLUGIN_ID } from "../pluginId";
-import { nextBatchSize, responseError } from "../shared";
+import { nextBatchSize } from "../shared";
+import { apiGet } from "../utils/api";
 
 const ExportPreviewPage = () => {
   const { uid } = useParams<{ uid: string }>();
@@ -39,10 +39,7 @@ const ExportPreviewPage = () => {
       if (cols.length > 0) params.set("columns", cols.join(","));
       if (loc) params.set("locale", loc);
 
-      const res = await fetch(`/api/${PLUGIN_ID}/tabledata?${params}`);
-      if (!res.ok) throw new Error(await responseError(res));
-
-      const data = await res.json();
+      const data = await apiGet("/tabledata", params);
       setTableData(data.data ?? []);
       setTotalRows(data.total ?? 0);
       return data;
@@ -60,8 +57,7 @@ const ExportPreviewPage = () => {
     const init = async () => {
       let initialCols: string[] = [];
       try {
-        const res = await fetch(`/api/${PLUGIN_ID}/settings`);
-        const data = await res.json();
+        const data = await apiGet("/settings");
         const colSettings = data.collections?.[contentType];
         if (colSettings?.exportFields) {
           initialCols = colSettings.exportFields
@@ -110,9 +106,9 @@ const ExportPreviewPage = () => {
         if (locale) params.set("locale", locale);
 
         const began = performance.now();
-        const res = await fetch(`/api/${PLUGIN_ID}/tabledata?${params}`);
-        if (!res.ok) throw new Error(`Entries ${start + 1}–${start + limit}: ${await responseError(res)}`);
-        const data = await res.json();
+        const data = await apiGet("/tabledata", params).catch((error: Error) => {
+          throw new Error(`Entries ${start + 1}–${start + limit}: ${error.message}`);
+        });
 
         // Pin the columns from the first page so every page has the same shape
         if (cols.length === 0) cols = data.columns ?? [];

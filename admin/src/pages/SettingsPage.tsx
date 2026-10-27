@@ -2,7 +2,8 @@ import { Box, Button, Flex, Main, Table, Tbody, Td, Th, Thead, Toggle, Tr, Typog
 import { useNotification, useRBAC } from "@strapi/strapi/admin";
 import { useEffect, useState } from "react";
 import { PLUGIN_ID } from "../pluginId";
-import { type Collection, responseError } from "../shared";
+import type { Collection } from "../shared";
+import { apiGet, apiSend } from "../utils/api";
 
 const PERMISSIONS = [{ action: `plugin::${PLUGIN_ID}.settings.read`, subject: null }];
 
@@ -14,8 +15,7 @@ const SettingsPage = () => {
   const { toggleNotification } = useNotification();
 
   useEffect(() => {
-    fetch(`/api/${PLUGIN_ID}/collections`)
-      .then((r) => r.json())
+    apiGet("/collections")
       .then((data) => setCollections(data.collections ?? []))
       .catch(() => toggleNotification({ type: "danger", message: "Failed to load collections" }))
       .finally(() => setIsLoading(false));
@@ -32,12 +32,7 @@ const SettingsPage = () => {
       const body = Object.fromEntries(
         collections.map(({ uid, exportEnabled, importEnabled }) => [uid, { exportEnabled, importEnabled }])
       );
-      const response = await fetch(`/api/${PLUGIN_ID}/settings`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ collections: body }),
-      });
-      if (!response.ok) throw new Error(await responseError(response));
+      await apiSend("put", "/settings", { collections: body });
       toggleNotification({ type: "success", message: "Settings saved" });
     } catch (error: any) {
       toggleNotification({ type: "danger", message: `Failed to save settings: ${error.message}` });

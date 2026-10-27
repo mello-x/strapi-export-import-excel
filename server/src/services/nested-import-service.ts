@@ -1,6 +1,7 @@
 import type { Core } from "@strapi/strapi";
 import { PLUGIN_ID } from "../constants";
 import type { ImportResults } from "../types";
+import type { ContentTypeAccess } from "../utils/access";
 import { describeError, mergeResults } from "../utils/import/compare";
 import { cleanSheetRows } from "../utils/import/file";
 
@@ -19,7 +20,8 @@ const nestedImportService = ({ strapi }: { strapi: Core.Strapi }) => ({
     componentField: string,
     identifierField: string,
     locale: string | null = null,
-    publishOnImport = true
+    publishOnImport = true,
+    access: ContentTypeAccess
   ): Promise<ImportResults> {
     const results: ImportResults = { created: 0, updated: 0, skipped: 0, mediaUpdated: 0, errors: [] };
 
@@ -46,7 +48,8 @@ const nestedImportService = ({ strapi }: { strapi: Core.Strapi }) => ({
         componentDef.component,
         identifierField,
         locale,
-        publishOnImport
+        publishOnImport,
+        access
       );
       mergeResults(results, sheetResult);
     } catch (err: any) {
@@ -65,7 +68,8 @@ const nestedImportService = ({ strapi }: { strapi: Core.Strapi }) => ({
     componentUid: string,
     identifierField: string,
     locale: string | null,
-    publishOnImport: boolean
+    publishOnImport: boolean,
+    access: ContentTypeAccess
   ) {
     const results: ImportResults = { created: 0, updated: 0, skipped: 0, mediaUpdated: 0, errors: [] };
 
@@ -108,7 +112,7 @@ const nestedImportService = ({ strapi }: { strapi: Core.Strapi }) => ({
 
           let resolvedComponents = [];
           for (const componentRow of componentRows) {
-            const resolved = await importService.resolveComponentRelations(componentRow, componentUid, locale);
+            const resolved = await importService.resolveComponentRelations(componentRow, componentUid, locale, access);
             resolvedComponents.push(resolved);
           }
 
@@ -119,9 +123,15 @@ const nestedImportService = ({ strapi }: { strapi: Core.Strapi }) => ({
             return comp;
           });
 
+          if (!access.canUpdate(parent)) throw new Error("you are not allowed to update this entry");
+          if (publishOnImport && !access.canPublish(parent))
+            throw new Error("you are not allowed to publish this entry");
+          const data = await access.sanitizeUpdateInput(parent, { [componentField]: resolvedComponents });
+          if (!(componentField in data)) throw new Error(`you are not allowed to edit "${componentField}"`);
+
           await strapi.documents(contentType as any).update({
             documentId: parent.documentId,
-            data: { [componentField]: resolvedComponents },
+            data,
             ...statusParam,
             ...localeParam,
           } as any);

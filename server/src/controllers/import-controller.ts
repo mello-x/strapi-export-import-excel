@@ -1,5 +1,6 @@
 import type { Core } from "@strapi/strapi";
 import { PLUGIN_ID } from "../constants";
+import { requireContentTypeAccess } from "../utils/access";
 
 function buildImportResponse(result: any): { message: string; result: any; summary: any } {
   const hasErrors = result.errors?.length > 0;
@@ -45,14 +46,19 @@ const importController = ({ strapi }: { strapi: Core.Strapi }) => ({
       if (!contentType) return ctx.throw(400, "contentType is required");
       if (!Array.isArray(rows)) return ctx.throw(400, "rows must be an array");
 
+      const access = await requireContentTypeAccess(strapi, ctx, contentType, "import");
+      const publish = asBool(publishOnImport);
+      if (publish && !access.canPublish()) return ctx.throw(403, "You are not allowed to publish this content type");
+
       const importService = strapi.plugin(PLUGIN_ID).service("import-service");
       const result = await importService.importBatch(
         rows,
         contentType,
         locale || null,
         identifierField || null,
-        asBool(publishOnImport),
-        Number(startRow) || 2
+        publish,
+        Number(startRow) || 2,
+        access
       );
 
       ctx.body = buildImportResponse(result);
@@ -73,6 +79,11 @@ const importController = ({ strapi }: { strapi: Core.Strapi }) => ({
       }
       if (!Array.isArray(rows)) return ctx.throw(400, "rows must be an array");
 
+      const access = await requireContentTypeAccess(strapi, ctx, contentType, "import");
+      // Publishing is this import's default, so only an explicit request by someone who cannot publish is refused
+      const publish = asBool(publishOnImport, access.canPublish());
+      if (publish && !access.canPublish()) return ctx.throw(403, "You are not allowed to publish this content type");
+
       const nestedImportService = strapi.plugin(PLUGIN_ID).service("nested-import-service");
       const result = await nestedImportService.importComponentBatch(
         rows,
@@ -80,7 +91,8 @@ const importController = ({ strapi }: { strapi: Core.Strapi }) => ({
         componentField,
         identifierField,
         locale || null,
-        asBool(publishOnImport, true)
+        publish,
+        access
       );
 
       ctx.body = buildImportResponse(result);

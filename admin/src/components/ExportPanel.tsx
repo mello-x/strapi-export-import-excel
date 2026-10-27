@@ -51,7 +51,7 @@ const ExportPanel = ({ collections, locales, defaultLocale }: ExportPanelProps) 
         placeholder="Select collection..."
       >
         {collections
-          .filter((c) => c.exportEnabled !== false)
+          .filter((c) => c.exportEnabled !== false && c.canExport !== false)
           .map((col) => (
             <SingleSelectOption key={col.uid} value={col.uid}>
               {col.displayName}
