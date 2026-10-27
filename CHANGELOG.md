@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.0.0](https://github.com/mello-x/strapi-export-import-excel/compare/strapi-export-import-excel-v1.6.3...strapi-export-import-excel-v2.0.0) (2026-10-27)
+
+
+### ⚠ BREAKING CHANGES
+
+* **security:** the plugin no longer exposes `/api/strapi-export-import-excel/*`. Calls to those URLs must use the admin API with an administrator token.
+
+### Bug Fixes
+
+* **security:** serve routes on the admin API and enforce Content Manager permissions ([5280561](https://github.com/mello-x/strapi-export-import-excel/commit/52805616fa1925ed98b79a55e4e9ed939ecd56e3))
+
 ## [1.6.3](https://github.com/mello-x/strapi-export-import-excel/compare/strapi-export-import-excel-v1.6.2...strapi-export-import-excel-v1.6.3) (2026-10-21)
 
 
