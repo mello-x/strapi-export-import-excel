@@ -38,7 +38,12 @@ export const isManagedContentType = (strapi: Core.Strapi, uid: unknown): uid is 
   uid.startsWith("api::") &&
   Boolean(strapi.contentTypes[uid as keyof typeof strapi.contentTypes]);
 
-export const createContentTypeAccess = (strapi: Core.Strapi, userAbility: any, uid: string): ContentTypeAccess => {
+export const createContentTypeAccess = (
+  strapi: Core.Strapi,
+  userAbility: any,
+  uid: string,
+  userId?: number
+): ContentTypeAccess => {
   const permissionChecker = strapi.plugin("content-manager").service("permission-checker");
   const checkerFor = (model: string) => permissionChecker.create({ userAbility, model });
   const checker = checkerFor(uid);
@@ -53,8 +58,15 @@ export const createContentTypeAccess = (strapi: Core.Strapi, userAbility: any, u
     canUpdateMedia: () => Boolean(userAbility.can("plugin::upload.assets.update")),
     sanitizedReadQuery: (query) => checker.sanitizedQuery.read(query),
     sanitizeOutput: (entry) => checker.sanitizeOutput(entry),
-    sanitizeCreateInput: (data) => checker.sanitizeCreateInput(data),
-    sanitizeUpdateInput: (entity, data) => checker.sanitizeUpdateInput(entity)(data),
+    sanitizeCreateInput: async (data) => ({
+      ...(await checker.sanitizeCreateInput(data)),
+      createdBy: userId,
+      updatedBy: userId,
+    }),
+    sanitizeUpdateInput: async (entity, data) => ({
+      ...(await checker.sanitizeUpdateInput(entity)(data)),
+      updatedBy: userId,
+    }),
   };
 };
 
@@ -85,7 +97,7 @@ export const requireContentTypeAccess = async (
     }
   }
 
-  const access = createContentTypeAccess(strapi, userAbility, uid);
+  const access = createContentTypeAccess(strapi, userAbility, uid, ctx.state.user?.id);
   const allowed =
     intent === "export"
       ? access.canRead()

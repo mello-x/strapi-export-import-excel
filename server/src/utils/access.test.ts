@@ -72,4 +72,12 @@ describe("requireContentTypeAccess", () => {
     const { strapi } = makeStrapi({ permissions: full, settings: {} });
     await requireContentTypeAccess(strapi, makeCtx(), ARTICLE, "export");
   });
+
+  it("stamps the importing admin on create and update input", async () => {
+    const { strapi } = makeStrapi({ permissions: full });
+    const ctx = makeCtx({ state: { userAbility: {}, user: { id: 7 } } });
+    const access = await requireContentTypeAccess(strapi, ctx, ARTICLE, "import");
+    assert.deepEqual(await access.sanitizeCreateInput({ title: "a" }), { title: "a", createdBy: 7, updatedBy: 7 });
+    assert.deepEqual(await access.sanitizeUpdateInput({}, { title: "b" }), { title: "b", updatedBy: 7 });
+  });
 });
