@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.1.0](https://github.com/mello-x/strapi-export-import-excel/compare/strapi-export-import-excel-v2.0.0...strapi-export-import-excel-v2.1.0) (2026-10-28)
+
+
+### Features
+
+* **import:** record importing admin as createdBy/updatedBy ([0549391](https://github.com/mello-x/strapi-export-import-excel/commit/0549391031a24528d0eb18b051ce56a13368af5d))
+* **import:** record importing admin as createdBy/updatedBy ([162c0b3](https://github.com/mello-x/strapi-export-import-excel/commit/162c0b366208c2835319543e79b1d530cd49060e))
+
 ## [2.0.0](https://github.com/mello-x/strapi-export-import-excel/compare/strapi-export-import-excel-v1.6.3...strapi-export-import-excel-v2.0.0) (2026-10-27)
 
 
