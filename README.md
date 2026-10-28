@@ -61,7 +61,7 @@ Repeatable components are expanded into multiple rows — parent fields are dupl
 4. Optionally toggle **Publish on import** and **Bulk locale upload**
 5. Click **Start Import**
 
-The import will **create** new entries or **update** existing ones based on the identifier field.
+The import will **create** new entries or **update** existing ones based on the identifier field. Entries the import changes record the signed-in admin as **Last update by** (and **Created by** for new entries), just like edits made in the Content Manager.
 
 ### Nested Import (Repeatable Components)
 
