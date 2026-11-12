@@ -2,7 +2,8 @@ import type { ContentTypeAccess } from "../utils/access";
 
 export type Call = { uid: string; method: string; args: any[] };
 
-type Flags = Partial<{ read: boolean; create: boolean; update: boolean; publish: boolean }>;
+/** `writable` limits the fields the input sanitizers keep, like a role's field permissions. */
+type Flags = Partial<{ read: boolean; create: boolean; update: boolean; publish: boolean; writable: string[] }>;
 
 /** A ContentTypeAccess that allows everything unless overridden. */
 export const makeAccess = (overrides: Partial<ContentTypeAccess> = {}): ContentTypeAccess => ({
@@ -84,6 +85,9 @@ export const makeStrapi = (
 
   const checkerFor = (model: string) => {
     const flags = permissions[model] ?? {};
+    const { writable } = flags;
+    const keepWritable = (data: any) =>
+      writable ? Object.fromEntries(Object.entries(data).filter(([k]) => writable.includes(k))) : data;
     return {
       can: {
         read: () => Boolean(flags.read),
@@ -93,8 +97,8 @@ export const makeStrapi = (
       },
       sanitizedQuery: { read: async (query: any) => query },
       sanitizeOutput: async (entry: any) => entry,
-      sanitizeCreateInput: async (data: any) => data,
-      sanitizeUpdateInput: () => async (data: any) => data,
+      sanitizeCreateInput: async (data: any) => keepWritable(data),
+      sanitizeUpdateInput: () => async (data: any) => keepWritable(data),
     };
   };
 
