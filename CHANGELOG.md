@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.2.0](https://github.com/mello-x/strapi-export-import-excel/compare/strapi-export-import-excel-v2.1.0...strapi-export-import-excel-v2.2.0) (2026-11-12)
+
+
+### Features
+
+* **import:** fail rows that change fields the admin's role cannot write ([fcdf45d](https://github.com/mello-x/strapi-export-import-excel/commit/fcdf45d0eb13367cdb63898e13cfd2187e4fe230))
+* **import:** fail rows that change fields the admin's role cannot write ([adc204e](https://github.com/mello-x/strapi-export-import-excel/commit/adc204e523cfaad9d7d2f736d252c3ed87ca1ac5))
+
 ## [2.1.0](https://github.com/mello-x/strapi-export-import-excel/compare/strapi-export-import-excel-v2.0.0...strapi-export-import-excel-v2.1.0) (2026-10-28)
 
 
