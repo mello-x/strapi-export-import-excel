@@ -1,6 +1,6 @@
 import type { Core } from "@strapi/strapi";
 import { PLUGIN_ID } from "../constants";
-import { requireContentTypeAccess } from "../utils/access";
+import { requireContentTypeAccess, throwDenied } from "../utils/access";
 
 function buildImportResponse(result: any): { message: string; result: any; summary: any } {
   const hasErrors = result.errors?.length > 0;
@@ -48,7 +48,7 @@ const importController = ({ strapi }: { strapi: Core.Strapi }) => ({
 
       const access = await requireContentTypeAccess(strapi, ctx, contentType, "import");
       const publish = asBool(publishOnImport);
-      if (publish && !access.canPublish()) return ctx.throw(403, "You are not allowed to publish this content type");
+      if (publish && !access.canPublish()) return throwDenied(strapi, ctx, contentType, "Publish");
 
       const importService = strapi.plugin(PLUGIN_ID).service("import-service");
       const result = await importService.importBatch(
@@ -82,7 +82,7 @@ const importController = ({ strapi }: { strapi: Core.Strapi }) => ({
       const access = await requireContentTypeAccess(strapi, ctx, contentType, "import");
       // Publishing is this import's default, so only an explicit request by someone who cannot publish is refused
       const publish = asBool(publishOnImport, access.canPublish());
-      if (publish && !access.canPublish()) return ctx.throw(403, "You are not allowed to publish this content type");
+      if (publish && !access.canPublish()) return throwDenied(strapi, ctx, contentType, "Publish");
 
       const nestedImportService = strapi.plugin(PLUGIN_ID).service("nested-import-service");
       const result = await nestedImportService.importComponentBatch(

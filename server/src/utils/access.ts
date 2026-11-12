@@ -1,6 +1,7 @@
 import type { Core } from "@strapi/strapi";
 import { getPluginStore, STORE_KEY } from "../constants";
 import type { PluginSettings } from "../types";
+import { findDroppedChanges } from "./import/compare";
 
 /**
  * What the caller wants to do with a collection:
@@ -28,6 +29,7 @@ export interface ContentTypeAccess {
   /** Merges the caller's read conditions into `query` and drops fields they cannot read. */
   sanitizedReadQuery(query: Record<string, any>): Promise<Record<string, any>>;
   sanitizeOutput(entry: any): Promise<any>;
+  /** Both input sanitizers throw when the data changes a field the admin may not write. */
   sanitizeCreateInput(data: Record<string, any>): Promise<Record<string, any>>;
   sanitizeUpdateInput(entity: any, data: Record<string, any>): Promise<Record<string, any>>;
 }
@@ -38,11 +40,42 @@ export const isManagedContentType = (strapi: Core.Strapi, uid: unknown): uid is 
   uid.startsWith("api::") &&
   Boolean(strapi.contentTypes[uid as keyof typeof strapi.contentTypes]);
 
+type AdminUser = { id?: number; roles?: { name?: string }[] } | undefined;
+
+/** "Your role (Editor)": names the roles so the reader knows which one an admin must change. */
+const yourRole = (user: AdminUser) => {
+  const names = (user?.roles ?? []).map((r) => r.name).filter(Boolean);
+  return names.length > 0 ? `Your role (${names.join(", ")})` : "Your role";
+};
+
+/** 403 saying who lacks which Content Manager permission on which collection, and who can fix it. */
+export const throwDenied = (strapi: Core.Strapi, ctx: any, uid: string, permission: string) =>
+  ctx.throw(
+    403,
+    `${yourRole(ctx.state?.user)} does not have the ${permission} permission on "${(strapi.contentTypes as any)[uid]?.info?.displayName ?? uid}". ` +
+      "Ask an admin to grant it in Settings → Administration Panel → Roles."
+  );
+
+/**
+ * Strapi's sanitizer silently drops fields the admin's role may not write. An import must not
+ * half-apply a row, so fail it instead, naming the fields.
+ */
+const assertWritable = (input: Record<string, any>, sanitized: Record<string, any>, existing: any, user: AdminUser) => {
+  const dropped = findDroppedChanges(input, sanitized, existing);
+  if (dropped.length > 0) {
+    throw new Error(
+      `${yourRole(user)} has no permission to edit ${dropped.join(", ")}. ` +
+        "Clear those cells or ask an admin to grant the field in Settings → Administration Panel → Roles."
+    );
+  }
+  return sanitized;
+};
+
 export const createContentTypeAccess = (
   strapi: Core.Strapi,
   userAbility: any,
   uid: string,
-  userId?: number
+  user?: AdminUser
 ): ContentTypeAccess => {
   const permissionChecker = strapi.plugin("content-manager").service("permission-checker");
   const checkerFor = (model: string) => permissionChecker.create({ userAbility, model });
@@ -59,13 +92,13 @@ export const createContentTypeAccess = (
     sanitizedReadQuery: (query) => checker.sanitizedQuery.read(query),
     sanitizeOutput: (entry) => checker.sanitizeOutput(entry),
     sanitizeCreateInput: async (data) => ({
-      ...(await checker.sanitizeCreateInput(data)),
-      createdBy: userId,
-      updatedBy: userId,
+      ...assertWritable(data, await checker.sanitizeCreateInput(data), null, user),
+      createdBy: user?.id,
+      updatedBy: user?.id,
     }),
     sanitizeUpdateInput: async (entity, data) => ({
-      ...(await checker.sanitizeUpdateInput(entity)(data)),
-      updatedBy: userId,
+      ...assertWritable(data, await checker.sanitizeUpdateInput(entity)(data), entity, user),
+      updatedBy: user?.id,
     }),
   };
 };
@@ -97,14 +130,15 @@ export const requireContentTypeAccess = async (
     }
   }
 
-  const access = createContentTypeAccess(strapi, userAbility, uid, ctx.state.user?.id);
+  const access = createContentTypeAccess(strapi, userAbility, uid, ctx.state.user);
   const allowed =
     intent === "export"
       ? access.canRead()
       : intent === "import"
         ? access.canCreate() || access.canUpdate()
         : access.canRead() || access.canCreate() || access.canUpdate();
-  if (!allowed) return ctx.throw(403, "You are not allowed to access this content type");
+  const needed = { export: "Read", import: "Create or Update", schema: "Read, Create or Update" }[intent];
+  if (!allowed) return throwDenied(strapi, ctx, uid, needed);
 
   return access;
 };

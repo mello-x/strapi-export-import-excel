@@ -44,6 +44,15 @@ describe("requireContentTypeAccess", () => {
     }
   });
 
+  it("names the role, permission and collection when refusing", async () => {
+    const { strapi } = makeStrapi({ permissions: { [ARTICLE]: { read: true } } });
+    const ctx = makeCtx({ state: { userAbility: {}, user: { roles: [{ name: "Editor" }] } } });
+    await assert.rejects(
+      requireContentTypeAccess(strapi, ctx, ARTICLE, "import"),
+      /^Error: Your role \(Editor\) does not have the Create or Update permission on ".+"\. Ask an admin/
+    );
+  });
+
   it("answers 403 to import without create or update", async () => {
     const { strapi } = makeStrapi({ permissions: { [ARTICLE]: { read: true, publish: true } } });
     await assert.rejects(requireContentTypeAccess(strapi, makeCtx(), ARTICLE, "import"), expectStatus(403));
@@ -79,5 +88,20 @@ describe("requireContentTypeAccess", () => {
     const access = await requireContentTypeAccess(strapi, ctx, ARTICLE, "import");
     assert.deepEqual(await access.sanitizeCreateInput({ title: "a" }), { title: "a", createdBy: 7, updatedBy: 7 });
     assert.deepEqual(await access.sanitizeUpdateInput({}, { title: "b" }), { title: "b", updatedBy: 7 });
+  });
+
+  it("fails input that changes a field the role may not write, naming it", async () => {
+    const { strapi } = makeStrapi({ permissions: { [ARTICLE]: { ...full[ARTICLE], writable: ["title"] } } });
+    const ctx = makeCtx({ state: { userAbility: {}, user: { id: 7, roles: [{ name: "Editor" }] } } });
+    const access = await requireContentTypeAccess(strapi, ctx, ARTICLE, "import");
+
+    await assert.rejects(
+      access.sanitizeCreateInput({ title: "a", price: 5 }),
+      /^Error: Your role \(Editor\) has no permission to edit price\./
+    );
+    await assert.rejects(access.sanitizeUpdateInput({ price: 1 }, { title: "b", price: 5 }), /edit price\./);
+    // Unchanged or empty read-only columns (as in an exported sheet) still import.
+    assert.equal((await access.sanitizeUpdateInput({ price: 5 }, { title: "b", price: 5 })).title, "b");
+    assert.equal((await access.sanitizeCreateInput({ title: "a", price: "" })).title, "a");
   });
 });

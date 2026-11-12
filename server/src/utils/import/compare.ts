@@ -53,3 +53,45 @@ export function hasChanges(existing: Record<string, any>, incoming: Record<strin
   }
   return false;
 }
+
+const isBlank = (value: unknown) => value == null || value === "" || (Array.isArray(value) && value.length === 0);
+
+/** Whether `value` differs from `stored`, looking only at the keys `value` sets (relations carry just a documentId). */
+const differs = (stored: any, value: any): boolean => {
+  if (value == null || typeof value !== "object") return stored !== value;
+  if (stored == null || typeof stored !== "object") return true;
+  if (Array.isArray(value)) {
+    return !Array.isArray(stored) || stored.length !== value.length || value.some((v, i) => differs(stored[i], v));
+  }
+  return Object.keys(value).some((k) => k !== "id" && differs(stored[k], value[k]));
+};
+
+/**
+ * Field paths the permission sanitizer dropped from `input` although the row changes them
+ * (vs `existing`, or any non-blank value when creating). Values equal to the stored ones are
+ * not reported, so a sheet carrying read-only columns (as exported) still imports.
+ */
+export function findDroppedChanges(input: any, sanitized: any, existing: any, prefix = ""): string[] {
+  const dropped: string[] = [];
+  if (Array.isArray(input)) {
+    input.forEach((item, i) => {
+      dropped.push(...findDroppedChanges(item, sanitized?.[i], existing?.[i], `${prefix}[${i}]`));
+    });
+    return dropped;
+  }
+  if (typeof input !== "object" || input == null || typeof sanitized !== "object" || sanitized == null) return dropped;
+
+  for (const key of Object.keys(input)) {
+    if (key === "id" || key === "__component" || SYSTEM_KEYS.has(key)) continue;
+    const path = prefix ? `${prefix}.${key}` : key;
+    const value = input[key];
+    const stored = existing?.[key];
+    if (!(key in sanitized)) {
+      const changed = isBlank(value) ? !isBlank(stored) : existing == null || differs(stored, value);
+      if (changed) dropped.push(path);
+    } else if (value != null && typeof value === "object") {
+      dropped.push(...findDroppedChanges(value, sanitized[key], stored, path));
+    }
+  }
+  return dropped;
+}
